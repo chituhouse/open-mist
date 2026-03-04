@@ -1,0 +1,25 @@
+{
+  "name": "open-mist",
+  "version": "1.0.0",
+  "description": "Production-grade Claude Agent SDK gateway with multi-channel IM integration, hybrid memory, and self-healing",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "keywords": ["claude", "agent-sdk", "gateway", "feishu", "mcp", "llm"],
+  "author": "chituhouse",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.33",
+    "@larksuiteoapi/node-sdk": "^1.58.0",
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "better-sqlite3": "^11.8.1",
+    "cos-nodejs-sdk-v5": "^2.15.4",
+    "dotenv": "^17.2.3",
+    "sqlite-vec": "^0.1.6",
+    "undici": "^7.22.0",
+    "xml2js": "^0.6.2",
+    "zod": "^4.3.6"
+  }
+}

@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Data
+data/
+downloads/
+media/
+
+# Cache
+agents/memory/*.json
+
+# Temp
+*.tmp
+*.swp
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Backup
+*.bak
+*.bak-*
+backup-*/
