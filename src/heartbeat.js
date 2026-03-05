@@ -58,7 +58,7 @@ function cleanOrphans() {
       if (!ORPHAN_PATTERNS.some(re => re.test(cmd))) continue;
 
       try {
-        execSync('sudo /usr/bin/kill -9 ' + pid, { timeout: 3_000 });
+        execFileSync('sudo', ['/usr/bin/kill', '-9', pid], { timeout: 3_000 });
         killed.push(pid + '(' + cmd.slice(0, 35) + ')');
       } catch (e) { console.debug('[cleanOrphans] kill', pid, '已消失:', e.message); }
     }
@@ -108,9 +108,9 @@ function checkMemory() {
 function checkFilePermissions() {
   const alerts = [];
   try {
-    const badFiles = execSync(
-      'find ' + path.join(PROJECT_DIR, 'data') + ' -not -user jarvis -type f 2>/dev/null',
-      { encoding: 'utf8', timeout: 5_000 }
+    const badFiles = execFileSync(
+      'find', [path.join(PROJECT_DIR, 'data'), '-not', '-user', 'jarvis', '-type', 'f'],
+      { encoding: 'utf8', timeout: 5_000, stdio: ['pipe', 'pipe', 'ignore'] }
     ).trim();
     if (!badFiles) return alerts;
 
@@ -121,7 +121,7 @@ function checkFilePermissions() {
     // data/memory/ 下的文件：递归修复
     if (memoryFiles.length > 0) {
       try {
-        execSync('sudo /usr/bin/chown -R jarvis:jarvis ' + path.join(PROJECT_DIR, 'data/memory/'), { timeout: 5_000 });
+        execFileSync('sudo', ['/usr/bin/chown', '-R', 'jarvis:jarvis', path.join(PROJECT_DIR, 'data/memory/')], { timeout: 5_000 });
         alerts.push('[已修复] data/memory/ 权限异常并已修正（' + memoryFiles.length + '个文件）');
       } catch (e) {
         alerts.push('[告警] data/memory/ 权限修复失败: ' + e.message);
@@ -131,7 +131,7 @@ function checkFilePermissions() {
     // data/ 根目录下的文件：逐个修复（sudoers 允许 chown data/*）
     for (const f of topFiles) {
       try {
-        execSync('sudo /usr/bin/chown jarvis:jarvis ' + f, { timeout: 5_000 });
+        execFileSync('sudo', ['/usr/bin/chown', 'jarvis:jarvis', f], { timeout: 5_000 });
         alerts.push('[已修复] ' + path.basename(f) + ' 权限已修正');
       } catch (e) {
         alerts.push('[告警] ' + path.basename(f) + ' 权限修复失败: ' + e.message);
@@ -153,7 +153,7 @@ function checkVectorStoreWritable() {
     }
   } catch {
     try {
-      execSync('sudo /usr/bin/chown jarvis:jarvis ' + path.join(PROJECT_DIR, 'data/memory/vectors.db'), { timeout: 5_000 });
+      execFileSync('sudo', ['/usr/bin/chown', 'jarvis:jarvis', path.join(PROJECT_DIR, 'data/memory/vectors.db')], { timeout: 5_000 });
       alerts.push('[已修复] vectors.db 权限异常并已修正');
     } catch (e2) {
       alerts.push('[告警] vectors.db 不可写且修复失败: ' + e2.message);

@@ -91,13 +91,12 @@ server {
 
     // 停止旧实例（如果存在）
     try {
-      execSync(`pm2 delete ${appName}`, { stdio: 'ignore' });
+      execFileSync('pm2', ['delete', appName], { stdio: 'ignore' });
     } catch (_) { /* ignore */ }
 
-    execSync(
-      `pm2 start ${entry} --name ${appName} --cwd ${siteDir} -- --port ${port}`,
-      { env: { ...process.env, PORT: String(port) } }
-    );
+    execFileSync('pm2', ['start', entry, '--name', appName, '--cwd', siteDir, '--', '--port', String(port)], {
+      env: { ...process.env, PORT: String(port) },
+    });
     console.log(`[Deployer] pm2 started ${appName} on port ${port}`);
 
     // Nginx 反向代理
@@ -132,12 +131,12 @@ server {
     const tmpPath = path.join(SITES_DIR, `${subdomain}.conf`);
     const confPath = path.join(NGINX_SITES, `task-${subdomain}`);
     fs.writeFileSync(tmpPath, conf);
-    execSync(`sudo cp ${tmpPath} ${confPath}`);
+    execFileSync('sudo', ['cp', tmpPath, confPath]);
 
     // 启用站点 + 测试 + 重载
-    execSync(`sudo /bin/ln -sf ${confPath} ${NGINX_ENABLED}/task-${subdomain}`);
-    execSync('sudo /usr/sbin/nginx -t');
-    execSync('sudo /usr/sbin/nginx -s reload');
+    execFileSync('sudo', ['/bin/ln', '-sf', confPath, path.join(NGINX_ENABLED, `task-${subdomain}`)]);
+    execFileSync('sudo', ['/usr/sbin/nginx', '-t']);
+    execFileSync('sudo', ['/usr/sbin/nginx', '-s', 'reload']);
     console.log(`[Deployer] Nginx configured for ${subdomain}`);
   }
 
