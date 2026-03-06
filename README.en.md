@@ -4,7 +4,7 @@
 
 English | [中文](README.md)
 
-> **Cut through the mist** — go back to fundamentals, find solutions that actually work.
+> **Cut through the mist, get to the essence.**
 
 A Claude Agent SDK gateway running in production. Talks to users through Feishu (Lark) and WeCom. Has memory, security hooks, and self-healing.
 
