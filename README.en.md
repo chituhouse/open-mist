@@ -18,6 +18,14 @@ The Claude Agent SDK is powerful, but official docs stop at Hello World. The rea
 
 OpenMist is that reference implementation. Not a demo. A system that runs every day.
 
+### Origin
+
+This project was born from a technical evaluation. While assessing [OpenClaw](https://github.com/openclaw/openclaw) (237K Stars, a general-purpose AI assistant framework), I found inherent security risks in its architecture: CVE-2026-25253 (RCE, CVSS 8.8) exposed a framework-level remote code execution vulnerability, and the community Skills ecosystem had supply chain attack surfaces.
+
+Digging deeper revealed a key insight: all 12 of OpenClaw's core mechanisms — security sandbox, memory, self-healing, tool integration, Skills, Hooks, multi-agent orchestration, multi-channel, knowledge management, secrets, deployment — can be implemented using Claude Code's official capabilities. No need for a massive third-party framework.
+
+So OpenMist was built: **20 files, 8 dependencies**, achieving parity with a 24+ platform framework's core capabilities. The guiding principle is simple — use official capabilities when they exist, only build what they don't provide.
+
 ---
 
 ## What it does
