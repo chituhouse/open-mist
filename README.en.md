@@ -4,29 +4,39 @@
 
 English | [中文](README.md)
 
-**Cut through the fog, find the light.**
+> **Cut through the mist** — go back to fundamentals, find solutions that actually work.
 
-OpenMist is a production-grade intelligent assistant gateway built on the Claude Agent SDK. It connects Claude to IM platforms (Feishu/Lark, WeCom) with enterprise features: multi-layer memory, SDK security hooks, and AI-powered self-healing.
+A Claude Agent SDK gateway running in production. Talks to users through Feishu (Lark) and WeCom. Has memory, security hooks, and self-healing.
+
+This started with a simple need: an AI assistant on Feishu that remembers context, can use tools, and fixes itself when things break. Nothing off-the-shelf did this, so I built it.
 
 ---
 
-## Key Features
+## Why this exists
 
-### Production Claude Agent SDK Security Hooks
+The Claude Agent SDK is powerful, but official docs stop at Hello World. The real production problems — preventing Claude from running dangerous commands, making it remember last week's conversation, auto-recovering when services crash — have no reference implementations.
 
-First open-source reference implementation of SDK security hooks. Bash command filtering blocks destructive operations, credential leaks, and privilege escalation. Write/Edit path whitelisting prevents unauthorized file access. Every tool invocation is logged to an append-only audit trail.
+OpenMist is that reference implementation. Not a demo. A system that runs every day.
 
-### Hybrid Memory for LLM Assistants
+---
 
-Three-layer memory system -- working memory, vector retrieval, and permanent archive. Hybrid search blends 70% semantic similarity (DashScope embeddings + sqlite-vec) with 30% keyword matching. Conversations are automatically summarized and indexed on session end.
+## What it does
 
-### Multi-Channel LLM Gateway
+**Security guard (hooks.js)**
 
-Unified gateway pattern decouples message processing from platform specifics. Feishu (WebSocket) and WeCom adapters are included; adding a new channel means implementing a single adapter class. Session management, media handling, and memory injection happen at the gateway level.
+Claude can execute arbitrary shell commands. The PreToolUse hook intercepts before execution: `rm -rf`, reading `.env`, `sudo su` — blocked at code level, not prompt level. AI can't bypass it. File writes go through path whitelisting. All tool calls are logged to an append-only audit trail.
 
-### AI-Powered Self-Healing
+**Memory system (memory/)**
 
-Heartbeat daemon runs every 30 minutes with two-phase checks: native checks (orphan process cleanup, file permission audit, VectorStore writability) execute instantly, then Claude analyzes system state and auto-remediates issues like failed cron jobs or disk pressure.
+Three layers: working memory (in-process JSON), vector search (DashScope + sqlite-vec), permanent archive. Queries use 70% semantic + 30% keyword hybrid search. Conversations are auto-summarized on session end. Relevant history is injected into the next conversation.
+
+**Multi-channel gateway (channels/)**
+
+The gateway handles memory injection, session management, and media — platform-agnostic. Feishu uses WebSocket, WeCom uses HTTP callbacks. Adding a new platform means writing one adapter class.
+
+**Self-healing (heartbeat.js)**
+
+Runs every 30 minutes. Native checks first (kill orphan processes, fix file permissions, verify VectorStore writability), then Claude analyzes logs and system state. Failed cron jobs get re-run automatically. Disk filling up gets cleaned. Not just alerting — fixing.
 
 ---
 
@@ -35,13 +45,13 @@ Heartbeat daemon runs every 30 minutes with two-phase checks: native checks (orp
 ```mermaid
 flowchart TB
     subgraph Channels
-        F[Feishu / Lark<br>WebSocket]
+        F[Feishu<br>WebSocket]
         W[WeCom<br>HTTP Callback]
     end
 
     subgraph Gateway
         GW[gateway.js<br>Message Pipeline]
-        CL[claude.js<br>Agent SDK Client]
+        CL[claude.js<br>Agent SDK]
         HK[hooks.js<br>Security Guard]
     end
 
@@ -52,13 +62,13 @@ flowchart TB
         AR[Archive<br>Permanent Log]
     end
 
-    subgraph MCP["MCP Servers"]
+    subgraph MCP["MCP Tools"]
         MB[feishu-bitable]
         MV[video-downloader]
         MC[tencent-cos]
     end
 
-    HB[heartbeat.js<br>Self-healing Daemon]
+    HB[heartbeat.js<br>Self-healing]
 
     F --> GW
     W --> GW
@@ -79,18 +89,16 @@ flowchart TB
 ### Prerequisites
 
 - Node.js >= 18
-- [Claude Code CLI](https://github.com/anthropics/claude-code) — the Agent SDK calls Claude CLI internally
-- SQLite3 (for sqlite-vec)
-- An Anthropic API key (or compatible endpoint)
+- [Claude Code CLI](https://github.com/anthropics/claude-code) (Agent SDK runtime dependency)
+- SQLite3
+- Anthropic API key
 - Feishu app credentials (App ID + App Secret)
 
 ### Install
 
 ```bash
-# 1. Install Claude Code CLI (required — the Agent SDK depends on it)
 npm install -g @anthropic-ai/claude-code
 
-# 2. Clone and install
 git clone https://github.com/chituhouse/open-mist.git
 cd open-mist
 npm install
@@ -98,25 +106,27 @@ npm install
 
 ### Configure
 
-Copy the example and fill in your credentials:
-
 ```bash
 cp .env.example .env
 ```
 
-Key variables in `.env`:
+Required:
 
 | Variable | Description |
 |----------|-------------|
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `ANTHROPIC_BASE_URL` | API endpoint (default: `https://api.anthropic.com`) |
-| `CLAUDE_MODEL` | Model ID (default: `claude-opus-4-6`) |
+| `CLAUDE_MODEL` | Model ID, default `claude-opus-4-6` |
 | `FEISHU_APP_ID` | Feishu app ID |
 | `FEISHU_APP_SECRET` | Feishu app secret |
-| `DASHSCOPE_API_KEY` | Alibaba DashScope key (for embeddings) |
-| `WECOM_CORP_ID` | WeCom corp ID (optional, enables WeCom channel) |
-| `COS_SECRET_ID` | Tencent Cloud COS secret ID (optional) |
-| `COS_SECRET_KEY` | Tencent Cloud COS secret key (optional) |
+
+Optional:
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_BASE_URL` | API endpoint, default `https://api.anthropic.com` |
+| `DASHSCOPE_API_KEY` | Alibaba DashScope (vector embeddings) |
+| `WECOM_CORP_ID` | WeCom corp ID (enables WeCom channel) |
+| `COS_SECRET_ID` / `COS_SECRET_KEY` | Tencent Cloud COS (object storage) |
 
 ### Run
 
@@ -124,10 +134,9 @@ Key variables in `.env`:
 npm start
 ```
 
-For production, use systemd or a process manager:
+For production, use systemd:
 
 ```bash
-# systemd example
 sudo systemctl enable --now feishu-bot.service
 ```
 
@@ -137,54 +146,44 @@ sudo systemctl enable --now feishu-bot.service
 
 ```
 src/
-  index.js              # Entry point
-  gateway.js            # Message pipeline (memory retrieval -> Claude -> tracking)
-  claude.js             # Claude Agent SDK wrapper + MCP server config
-  hooks.js              # PreToolUse security guard + PostToolUse audit logger
-  session.js            # Session store with expiry and rotation
+  index.js              # Entry point, 40 lines
+  gateway.js            # Message pipeline: memory retrieval -> Claude -> tracking
+  claude.js             # Agent SDK wrapper + MCP config
+  hooks.js              # Security: command filtering + path whitelisting + audit log
+  session.js            # Session management
   channels/
-    base.js             # Channel adapter interface
-    feishu.js           # Feishu/Lark WebSocket adapter
+    base.js             # Channel adapter base class
+    feishu.js           # Feishu adapter
     wecom.js            # WeCom adapter
   memory/
-    memory-manager.js   # Three-layer memory orchestrator
-    short-term.js       # Working memory (in-process, keyword search)
-    vector-store.js     # Semantic search (DashScope + sqlite-vec)
-    metrics.js          # Memory pipeline metrics
+    memory-manager.js   # Memory orchestrator: retrieve -> merge -> inject
+    short-term.js       # Working memory (keyword matching)
+    vector-store.js     # Vector search (DashScope + sqlite-vec)
+    metrics.js          # Memory metrics
   heartbeat.js          # Self-healing daemon
   deployer.js           # Auto subdomain deployment (nginx)
-  mcp-bitable.mjs       # MCP: Feishu Bitable read/write
-  mcp-video.mjs         # MCP: Video downloader
-  mcp-cos.mjs           # MCP: Tencent Cloud COS
-agents/                 # Recommendation engine
-scripts/                # Ops scripts (cron jobs, cleanup, reports)
-docs/                   # API references and dev notes
+  mcp-*.mjs             # MCP tool servers
+agents/                 # Recommendation engine (optional business module)
+scripts/                # Ops scripts
 ```
 
 ---
 
-## MCP Servers
+## MCP Tools
 
-OpenMist includes three MCP (Model Context Protocol) servers that extend Claude's capabilities:
+| Tool | File | Purpose |
+|------|------|---------|
+| feishu-bitable | `src/mcp-bitable.mjs` | Read/write Feishu Bitable records |
+| video-downloader | `src/mcp-video.mjs` | Download videos (YouTube, Bilibili, etc.) |
+| tencent-cos | `src/mcp-cos.mjs` | Tencent Cloud object storage |
 
-| Server | File | Description |
-|--------|------|-------------|
-| feishu-bitable | `src/mcp-bitable.mjs` | Read/write Feishu Bitable (spreadsheet) records |
-| video-downloader | `src/mcp-video.mjs` | Download videos from YouTube, Bilibili, etc. |
-| tencent-cos | `src/mcp-cos.mjs` | Upload/download files, generate presigned URLs |
-
-MCP servers are spawned automatically by the Claude client. No separate setup required.
+MCP servers are spawned automatically by the Claude client. No separate setup needed.
 
 ---
 
 ## Contributing
 
-Contributions are welcome. Please:
-
-1. Fork the repo and create a feature branch
-2. Keep changes focused -- one feature or fix per PR
-3. Test your changes before submitting
-4. Write clear commit messages
+PRs welcome. One thing per PR. Test before submitting.
 
 ---
 

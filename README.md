@@ -4,29 +4,39 @@
 
 [English](README.en.md) | 中文
 
-**拨开迷雾，找到光。**
+> **破雾寻光** — 回到问题本身，从底层逻辑找到真正的解决方案。
 
-OpenMist 是一个基于 Claude Agent SDK 构建的生产级智能助手网关。它将 Claude 连接到 IM 平台（飞书、企业微信），并提供企业级功能：多层记忆系统、SDK 安全守卫和 AI 驱动的自愈能力。
+一个跑在生产环境的 Claude Agent SDK 网关。通过飞书和企业微信与用户对话，具备记忆、安全防护和自愈能力。
+
+这个项目始于一个简单的需求：在飞书上有一个能记住上下文、能调工具、出了问题能自己修的 AI 助手。找了一圈没有现成方案，就自己写了。
 
 ---
 
-## 核心特性
+## 这个项目解决什么问题
 
-### 生产级 Claude Agent SDK 安全守卫
+Claude Agent SDK 功能强大，但官方文档止步于 Hello World。真正跑在生产环境要解决的问题——怎么防止 AI 执行危险命令、怎么让它记住上周的对话、服务挂了怎么自动恢复——没有参考实现。
 
-首个开源的 SDK 安全 Hooks 参考实现。Bash 命令过滤可拦截破坏性操作、凭证泄露和权限提升。Write/Edit 路径白名单防止未授权的文件访问。每次工具调用都记录到只追加的审计日志中。
+OpenMist 就是这个参考实现。不是 demo，是每天在用的系统。
 
-### 混合记忆系统
+---
 
-三层记忆架构——工作记忆、向量检索和永久归档。混合搜索融合 70% 语义相似度（DashScope embedding + sqlite-vec）与 30% 关键词匹配。对话在会话结束时自动摘要并索引。
+## 它做了什么
 
-### 多通道 LLM 网关
+**安全守卫（hooks.js）**
 
-统一网关模式将消息处理与平台细节解耦。内置飞书（WebSocket）和企业微信适配器；新增通道只需实现一个适配器类。会话管理、媒体处理和记忆注入均在网关层完成。
+Claude 有能力执行任意 shell 命令。PreToolUse Hook 在命令执行前拦截：`rm -rf`、读取 `.env`、`sudo su` 这类操作直接拒绝，不走提示词约束，代码级硬拦截，AI 绕不过去。写文件也有路径白名单。所有工具调用写入审计日志。
 
-### AI 驱动的自愈
+**记忆系统（memory/）**
 
-Heartbeat 守护进程每 30 分钟执行双层检查：原生检查（孤儿进程清理、文件权限巡检、VectorStore 可写性）即时执行，随后 Claude 分析系统状态并自动修复问题（如失败的定时任务或磁盘压力）。
+三层：工作记忆（进程内 JSON）、向量检索（DashScope + sqlite-vec）、永久归档。查询时 70% 语义 + 30% 关键词混合检索。对话结束自动摘要入库。下次对话时，相关的历史上下文会自动注入。
+
+**多通道网关（channels/）**
+
+网关层处理记忆注入、会话管理、媒体文件，与平台无关。飞书走 WebSocket 长连接，企微走 HTTP 回调。加新平台就是写一个适配器类。
+
+**自愈（heartbeat.js）**
+
+每 30 分钟跑一轮检查。先跑原生检查（清孤儿进程、修文件权限、检测向量库可写性），再让 Claude 分析日志和系统状态。发现 cron 任务失败会自动重跑，磁盘快满会自动清理。不只是告警，是修复。
 
 ---
 
@@ -41,24 +51,24 @@ flowchart TB
 
     subgraph Gateway["网关层"]
         GW[gateway.js<br>消息管线]
-        CL[claude.js<br>Agent SDK 客户端]
+        CL[claude.js<br>Agent SDK]
         HK[hooks.js<br>安全守卫]
     end
 
     subgraph Memory["记忆层"]
         MM[MemoryManager]
-        ST[短期记忆<br>工作记忆]
+        ST[短期<br>工作记忆]
         VS[VectorStore<br>sqlite-vec]
         AR[Archive<br>永久归档]
     end
 
-    subgraph MCP["MCP 服务器"]
+    subgraph MCP["MCP 工具"]
         MB[feishu-bitable]
         MV[video-downloader]
         MC[tencent-cos]
     end
 
-    HB[heartbeat.js<br>自愈守护进程]
+    HB[heartbeat.js<br>自愈守护]
 
     F --> GW
     W --> GW
@@ -76,21 +86,19 @@ flowchart TB
 
 ## 快速开始
 
-### 前提条件
+### 前置依赖
 
 - Node.js >= 18
-- [Claude Code CLI](https://github.com/anthropics/claude-code) — Agent SDK 内部调用 Claude CLI
-- SQLite3（用于 sqlite-vec）
-- Anthropic API 密钥（或兼容的 API 端点）
+- [Claude Code CLI](https://github.com/anthropics/claude-code)（Agent SDK 运行时依赖）
+- SQLite3
+- Anthropic API Key
 - 飞书应用凭证（App ID + App Secret）
 
 ### 安装
 
 ```bash
-# 1. 安装 Claude Code CLI（必需，Agent SDK 依赖它）
 npm install -g @anthropic-ai/claude-code
 
-# 2. 克隆并安装
 git clone https://github.com/chituhouse/open-mist.git
 cd open-mist
 npm install
@@ -98,25 +106,27 @@ npm install
 
 ### 配置
 
-复制示例配置并填入凭证：
-
 ```bash
 cp .env.example .env
 ```
 
-`.env` 中的关键变量：
+必填：
 
 | 变量 | 说明 |
 |------|------|
-| `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
-| `ANTHROPIC_BASE_URL` | API 端点（默认：`https://api.anthropic.com`） |
-| `CLAUDE_MODEL` | 模型 ID（默认：`claude-opus-4-6`） |
+| `ANTHROPIC_API_KEY` | Anthropic API Key |
+| `CLAUDE_MODEL` | 模型 ID，默认 `claude-opus-4-6` |
 | `FEISHU_APP_ID` | 飞书应用 ID |
 | `FEISHU_APP_SECRET` | 飞书应用密钥 |
-| `DASHSCOPE_API_KEY` | 阿里云 DashScope 密钥（用于向量 embedding） |
-| `WECOM_CORP_ID` | 企微企业 ID（可选，启用企微通道） |
-| `COS_SECRET_ID` | 腾讯云 COS Secret ID（可选） |
-| `COS_SECRET_KEY` | 腾讯云 COS Secret Key（可选） |
+
+可选：
+
+| 变量 | 说明 |
+|------|------|
+| `ANTHROPIC_BASE_URL` | API 端点，默认 `https://api.anthropic.com` |
+| `DASHSCOPE_API_KEY` | 阿里云 DashScope（向量 embedding） |
+| `WECOM_CORP_ID` | 企微企业 ID（启用企微通道） |
+| `COS_SECRET_ID` / `COS_SECRET_KEY` | 腾讯云 COS（对象存储） |
 
 ### 启动
 
@@ -124,10 +134,9 @@ cp .env.example .env
 npm start
 ```
 
-生产环境建议使用 systemd 或进程管理工具：
+生产环境用 systemd：
 
 ```bash
-# systemd 示例
 sudo systemctl enable --now feishu-bot.service
 ```
 
@@ -137,54 +146,44 @@ sudo systemctl enable --now feishu-bot.service
 
 ```
 src/
-  index.js              # 入口
-  gateway.js            # 消息管线（记忆检索 -> Claude -> 追踪）
-  claude.js             # Claude Agent SDK 封装 + MCP 服务器配置
-  hooks.js              # PreToolUse 安全守卫 + PostToolUse 审计日志
-  session.js            # 会话存储（过期与轮转）
+  index.js              # 入口，40 行
+  gateway.js            # 消息管线：记忆检索 → Claude → 追踪
+  claude.js             # Agent SDK 封装 + MCP 配置
+  hooks.js              # 安全守卫：命令拦截 + 路径白名单 + 审计日志
+  session.js            # 会话管理
   channels/
-    base.js             # 通道适配器接口
-    feishu.js           # 飞书 WebSocket 适配器
-    wecom.js            # 企业微信适配器
+    base.js             # 通道适配器基类
+    feishu.js           # 飞书适配器
+    wecom.js            # 企微适配器
   memory/
-    memory-manager.js   # 三层记忆编排器
-    short-term.js       # 工作记忆（进程内，关键词搜索）
-    vector-store.js     # 语义搜索（DashScope + sqlite-vec）
-    metrics.js          # 记忆管线指标
+    memory-manager.js   # 记忆编排：检索 → 合并 → 注入
+    short-term.js       # 工作记忆（关键词匹配）
+    vector-store.js     # 向量检索（DashScope + sqlite-vec）
+    metrics.js          # 记忆指标
   heartbeat.js          # 自愈守护进程
-  deployer.js           # 自动子域名部署（nginx）
-  mcp-bitable.mjs       # MCP: 飞书多维表格读写
-  mcp-video.mjs         # MCP: 视频下载器
-  mcp-cos.mjs           # MCP: 腾讯云对象存储
-agents/                 # 推荐引擎
-scripts/                # 运维脚本（定时任务、清理、报告）
-docs/                   # API 参考文档和开发笔记
+  deployer.js           # nginx 子域名自动部署
+  mcp-*.mjs             # MCP 工具服务器
+agents/                 # 推荐引擎（可选的业务模块）
+scripts/                # 运维脚本
 ```
 
 ---
 
-## MCP 服务器
+## MCP 工具
 
-OpenMist 包含三个 MCP（Model Context Protocol）服务器，扩展 Claude 的能力：
+| 工具 | 文件 | 用途 |
+|------|------|------|
+| feishu-bitable | `src/mcp-bitable.mjs` | 读写飞书多维表格 |
+| video-downloader | `src/mcp-video.mjs` | 下载视频（YouTube、B站等） |
+| tencent-cos | `src/mcp-cos.mjs` | 腾讯云对象存储 |
 
-| 服务器 | 文件 | 说明 |
-|--------|------|------|
-| feishu-bitable | `src/mcp-bitable.mjs` | 读写飞书多维表格记录 |
-| video-downloader | `src/mcp-video.mjs` | 下载 YouTube、B站等平台视频 |
-| tencent-cos | `src/mcp-cos.mjs` | 上传下载文件、生成预签名 URL |
-
-MCP 服务器由 Claude 客户端自动启动，无需额外配置。
+Claude 客户端自动启动这些 MCP 服务器，不需要单独配置。
 
 ---
 
-## 参与贡献
+## 贡献
 
-欢迎贡献代码：
-
-1. Fork 本仓库并创建功能分支
-2. 保持改动聚焦——每个 PR 只做一件事
-3. 提交前测试你的改动
-4. 写清楚 commit message
+欢迎 PR。一个 PR 做一件事，提交前跑通测试。
 
 ---
 
