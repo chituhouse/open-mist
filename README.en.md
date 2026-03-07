@@ -24,7 +24,7 @@ This project was born from a technical evaluation. While assessing [OpenClaw](ht
 
 Digging deeper revealed a key insight: all 12 of OpenClaw's core mechanisms — security sandbox, memory, self-healing, tool integration, Skills, Hooks, multi-agent orchestration, multi-channel, knowledge management, secrets, deployment — can be implemented using Claude Code's official capabilities. No need for a massive third-party framework.
 
-So OpenMist was built: **20 files, 8 dependencies**, achieving parity with a 24+ platform framework's core capabilities. The guiding principle is simple — use official capabilities when they exist, only build what they don't provide.
+So OpenMist was built: **20 source files, 10 dependencies**, achieving parity with a 24+ platform framework's core capabilities. The guiding principle is simple — use official capabilities when they exist, only build what they don't provide.
 
 ---
 
