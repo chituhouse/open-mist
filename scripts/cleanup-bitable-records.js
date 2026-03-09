@@ -3,7 +3,7 @@
  *
  * 清理策略：
  *   热搜表（微博/抖音/头条）: 3 天
- *   选题池: 7 天
+ *   推荐内容池: 7 天
  *   每日资讯简报: 30 天
  *   GitHub 更新: 30 天
  *
@@ -83,7 +83,7 @@ function buildTableConfigs() {
     { name: "微博热搜",     appToken: hotAppToken,                  tableId: process.env.WEIBO_TABLE_ID, dateField: "抓取时间", retainDays: 3 },
     { name: "抖音热搜",     appToken: hotAppToken,                  tableId: process.env.DOUYIN_TABLE_ID, dateField: "抓取时间", retainDays: 3 },
     { name: "头条热搜",     appToken: hotAppToken,                  tableId: process.env.TOUTIAO_TABLE_ID, dateField: "抓取时间", retainDays: 3 },
-    { name: "选题池",       appToken: hotAppToken,                  tableId: process.env.TOPIC_POOL_TABLE_ID, dateField: "推荐时间", retainDays: 7 },
+    { name: "推荐内容池",   appToken: hotAppToken,                  tableId: process.env.TOPIC_POOL_TABLE_ID, dateField: "推荐时间", retainDays: 7 },
     { name: "每日资讯简报", appToken: briefingConfig?.app_token,     tableId: briefingConfig?.table_id, dateField: "采集日期", retainDays: 30 },
     { name: "GitHub 更新",  appToken: githubConfig?.app_token,      tableId: githubConfig?.table_id, dateField: "采集日期", retainDays: 30 },
   ];

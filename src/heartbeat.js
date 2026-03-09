@@ -225,10 +225,10 @@ function buildPrompt(native) {
   // ── 时间窗口检查（cron 执行后检查对应日志）──
   const cronRules = [];
 
-  // 选题推荐（cron 6:00）→ 6:30~8:00 检查
+  // 推荐管线（cron 6:00）→ 6:30~8:00 检查
   if (hour >= 6 && hour <= 8) {
     checks.push('tail -8 logs/recommend.log');
-    cronRules.push('recommend.log: 出现ERROR/503/processed:0→选题推荐失败,告警并提示用户手动重跑');
+    cronRules.push('recommend.log: 出现ERROR/503/processed:0→推荐管线失败,告警并提示用户手动重跑');
   }
 
   // 资讯日报（cron 7:30）→ 8:00~9:30 检查
