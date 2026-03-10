@@ -150,9 +150,33 @@ sudo systemctl enable --now feishu-bot.service
 
 ---
 
+## 管理工具
+
+内置交互式命令行管理工具：
+
+```bash
+# 安装
+npm link
+
+# 启动交互式菜单
+openmist
+
+# 子命令
+openmist status    # 系统状态
+openmist test      # 诊断测试
+openmist config    # 查看配置
+```
+
+五大功能：系统状态面板、三级配置树导航、API 连通性诊断、日志查看、服务控制。
+
+详细文档：[CLI 使用指南](docs/cli-guide.md)
+
+---
+
 ## 项目结构
 
 ```
+admin.js              # CLI 管理工具
 src/
   index.js              # 入口，40 行
   gateway.js            # 消息管线：记忆检索 → Claude → 追踪

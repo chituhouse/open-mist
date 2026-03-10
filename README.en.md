@@ -150,9 +150,33 @@ sudo systemctl enable --now feishu-bot.service
 
 ---
 
+## Admin CLI
+
+Built-in interactive command-line management tool:
+
+```bash
+# Install
+npm link
+
+# Launch interactive menu
+openmist
+
+# Subcommands
+openmist status    # System status
+openmist test      # Run diagnostics
+openmist config    # View configuration
+```
+
+Five core features: system dashboard, three-level config tree navigation, API connectivity diagnostics, log viewer, service control.
+
+Full documentation: [CLI Guide](docs/cli-guide.md)
+
+---
+
 ## Project Structure
 
 ```
+admin.js              # CLI management tool
 src/
   index.js              # Entry point, 40 lines
   gateway.js            # Message pipeline: memory retrieval -> Claude -> tracking
