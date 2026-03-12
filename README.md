@@ -1,82 +1,93 @@
 # OpenMist
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Status](https://img.shields.io/badge/Status-Active%20Development-orange)
 
-[English](README.en.md) | 中文
+**Cut through the fog, find the light.** / **破雾寻光**
 
-> **破雾寻光** — 穿越迷雾，直抵本质。
-
-一个跑在生产环境的 Claude Agent SDK 网关。通过飞书和企业微信与用户对话，具备记忆、安全防护和自愈能力。
-
-这个项目始于一个简单的需求：在飞书上有一个能记住上下文、能调工具、出了问题能自己修的 AI 助手。找了一圈没有现成方案，就自己写了。
+> An enterprise-grade Claude Agent runtime — built on Claude Agent SDK + Claude Code, delivering what OpenClaw promises but with production-proven security, memory, and self-healing.
 
 ---
 
-## 这个项目解决什么问题
+## Why OpenMist
 
-Claude Agent SDK 功能强大，但官方文档止步于 Hello World。真正跑在生产环境要解决的问题——怎么防止 AI 执行危险命令、怎么让它记住上周的对话、服务挂了怎么自动恢复——没有参考实现。
+OpenClaw provides a framework for building AI agents. OpenMist takes a different approach: instead of wrapping Claude behind another abstraction layer, it runs Claude Code directly as the agent runtime, gaining its full tool ecosystem, security model, and extensibility for free.
 
-OpenMist 就是这个参考实现。不是 demo，是每天在用的系统。
+| Capability | OpenClaw | OpenMist |
+|------------|----------|----------|
+| **Runtime** | Custom agent loop | Claude Code (native SDK) |
+| **Security** | Application-level guards | SDK Hooks — PreToolUse interception at the runtime layer, not bypassable by prompts |
+| **Memory** | Stateless / BYO | Three-layer hybrid: working memory + vector search + permanent archive |
+| **Tool Ecosystem** | Custom tool definitions | MCP protocol — reuse any MCP server, no adapter code |
+| **Self-healing** | Manual ops | AI-powered heartbeat: auto-remediate cron failures, disk pressure, permission drift |
+| **IM Integration** | API-only | Native Feishu/WeCom adapters with streaming cards, media handling, session management |
+| **Deployment** | Container-based | Single Node.js process + systemd, auto subdomain provisioning |
 
-### 起源
-
-这个项目的诞生源于一次技术调研。当时在评估 [OpenClaw](https://github.com/openclaw/openclaw)（237K Stars 的通用 AI 助手框架），发现其架构天然存在安全隐患：CVE-2026-25253（RCE，CVSS 8.8）暴露了框架级的远程代码执行风险，社区 Skills 生态也存在供应链攻击面。
-
-深入研究后发现一个事实：OpenClaw 的 12 项核心机制——安全沙箱、记忆系统、自愈、工具集成、Skills、Hooks、多 Agent 协作、多通道、知识管理、密钥管理、部署——都能用 Claude Code 的官方能力实现，不需要引入一个庞大的第三方框架。
-
-于是就有了 OpenMist：**20 个源文件、10 个依赖**，实现了对标 24+ 平台框架的核心能力。核心理念很简单——官方能做的用官方，自建只做官方没有的。
-
----
-
-## 它做了什么
-
-**安全守卫（hooks.js）**
-
-Claude 有能力执行任意 shell 命令。PreToolUse Hook 在命令执行前拦截：`rm -rf`、读取 `.env`、`sudo su` 这类操作直接拒绝，不走提示词约束，代码级硬拦截，AI 绕不过去。写文件也有路径白名单。所有工具调用写入审计日志。
-
-**记忆系统（memory/）**
-
-三层：工作记忆（进程内 JSON）、向量检索（DashScope + sqlite-vec）、永久归档。查询时 70% 语义 + 30% 关键词混合检索。对话结束自动摘要入库。下次对话时，相关的历史上下文会自动注入。
-
-**多通道网关（channels/）**
-
-网关层处理记忆注入、会话管理、媒体文件，与平台无关。飞书走 WebSocket 长连接，企微走 HTTP 回调。加新平台就是写一个适配器类。
-
-**自愈（heartbeat.js）**
-
-每 30 分钟跑一轮检查。先跑原生检查（清孤儿进程、修文件权限、检测向量库可写性），再让 Claude 分析日志和系统状态。发现 cron 任务失败会自动重跑，磁盘快满会自动清理。不只是告警，是修复。
+The core insight: Claude Code is already the most capable agent runtime. Building on top of it — rather than rebuilding it — means every upstream improvement (new tools, better planning, faster execution) flows through automatically.
 
 ---
 
-## 架构
+## Key Features
+
+### SDK-Level Security Hooks
+
+Production-hardened security that operates at the Claude Code runtime layer, not the application layer. Bash command filtering blocks 5 categories of destructive operations (irreversible destruction, credential leaks, raw env dumps, sudo escalation, eval injection) while allowing all legitimate system operations. Write/Edit path whitelisting prevents unauthorized file access. Every tool invocation is logged to an append-only audit trail.
+
+### Three-Layer Hybrid Memory
+
+Working memory (in-process, keyword search) for current session context. Vector retrieval (DashScope embeddings + sqlite-vec) for semantic recall across sessions. Permanent archive for conversation summarization and long-term knowledge. Hybrid search blends 70% semantic similarity with 30% keyword matching, with automatic fallback to keyword-only when the vector layer is unavailable.
+
+### Multi-Channel Gateway
+
+Unified message pipeline decouples Claude interaction from platform specifics. Feishu (WebSocket long connection) and WeCom (HTTP callback + enterprise app) adapters are included. Adding a new channel means implementing a single adapter class. Session management, media handling, streaming card updates, and memory injection happen at the gateway level.
+
+### AI-Powered Self-Healing
+
+Heartbeat daemon runs two-phase checks every 30 minutes. Phase 1 (native): orphan process cleanup, file permission audit, VectorStore writability test — executes in milliseconds. Phase 2 (AI): Claude analyzes system state and auto-remediates issues like failed cron jobs, disk pressure, or stale locks. Notifications aggregate into a daily digest instead of spamming alerts.
+
+### MCP Tool Servers
+
+Three built-in MCP servers extend Claude's capabilities without custom tool code:
+
+| Server | Description |
+|--------|-------------|
+| `feishu` | Full Feishu API: Bitable CRUD, document creation with auto-grant, drive operations, messaging |
+| `video-downloader` | Download videos from YouTube, Bilibili, Douyin, etc. |
+| `tencent-cos` | Tencent Cloud COS: upload, download, presigned URLs |
+
+MCP servers are spawned automatically by the Claude client. No separate setup required.
+
+---
+
+## Architecture
 
 ```mermaid
 flowchart TB
-    subgraph Channels["通道层"]
-        F[飞书<br>WebSocket]
-        W[企业微信<br>HTTP 回调]
+    subgraph Channels
+        F[Feishu / Lark<br>WebSocket]
+        W[WeCom<br>HTTP Callback]
     end
 
-    subgraph Gateway["网关层"]
-        GW[gateway.js<br>消息管线]
-        CL[claude.js<br>Agent SDK]
-        HK[hooks.js<br>安全守卫]
+    subgraph Gateway
+        GW[gateway.js<br>Message Pipeline]
+        CL[claude.js<br>Agent SDK Client]
+        HK[hooks.js<br>Security Guard]
     end
 
-    subgraph Memory["记忆层"]
+    subgraph Memory
         MM[MemoryManager]
-        ST[短期<br>工作记忆]
+        ST[Short-term<br>Working Memory]
         VS[VectorStore<br>sqlite-vec]
-        AR[Archive<br>永久归档]
+        AR[Archive<br>Permanent Log]
     end
 
-    subgraph MCP["MCP 工具"]
-        MB[feishu-bitable]
+    subgraph MCP["MCP Servers"]
+        MB[feishu]
         MV[video-downloader]
         MC[tencent-cos]
     end
 
-    HB[heartbeat.js<br>自愈守护]
+    HB[heartbeat.js<br>Self-healing Daemon]
 
     F --> GW
     W --> GW
@@ -87,62 +98,60 @@ flowchart TB
     GW --> CL
     CL --> HK
     CL --> MCP
-    HB -.->|监控| GW
+    HB -.->|monitors| GW
 ```
 
 ---
 
-## 快速开始
+## Quick Start
 
-### 前置依赖
+### Prerequisites
 
 - Node.js >= 18
-- [Claude Code CLI](https://github.com/anthropics/claude-code)（Agent SDK 运行时依赖）
-- SQLite3
-- Anthropic API Key
-- 飞书应用凭证（App ID + App Secret）
+- [Claude Code CLI](https://github.com/anthropics/claude-code) — the Agent SDK runs on Claude Code
+- SQLite3 (for sqlite-vec)
+- An Anthropic API key (or compatible endpoint)
+- Feishu app credentials (App ID + App Secret)
 
-### 安装
+### Install
 
 ```bash
+# 1. Install Claude Code CLI (required)
 npm install -g @anthropic-ai/claude-code
 
+# 2. Clone and install
 git clone https://github.com/chituhouse/open-mist.git
 cd open-mist
 npm install
 ```
 
-### 配置
+### Configure
 
 ```bash
 cp .env.example .env
 ```
 
-必填：
+Key variables:
 
-| 变量 | 说明 |
-|------|------|
-| `ANTHROPIC_API_KEY` | Anthropic API Key |
-| `CLAUDE_MODEL` | 模型 ID，默认 `claude-opus-4-6` |
-| `FEISHU_APP_ID` | 飞书应用 ID |
-| `FEISHU_APP_SECRET` | 飞书应用密钥 |
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `ANTHROPIC_BASE_URL` | API endpoint (default: `https://api.anthropic.com`) |
+| `CLAUDE_MODEL` | Model ID (default: `claude-opus-4-6`) |
+| `FEISHU_APP_ID` | Feishu app ID |
+| `FEISHU_APP_SECRET` | Feishu app secret |
+| `DASHSCOPE_API_KEY` | Alibaba DashScope key (for embeddings) |
+| `WECOM_CORP_ID` | WeCom corp ID (optional) |
+| `COS_SECRET_ID` | Tencent Cloud COS secret ID (optional) |
+| `COS_SECRET_KEY` | Tencent Cloud COS secret key (optional) |
 
-可选：
-
-| 变量 | 说明 |
-|------|------|
-| `ANTHROPIC_BASE_URL` | API 端点，默认 `https://api.anthropic.com` |
-| `DASHSCOPE_API_KEY` | 阿里云 DashScope（向量 embedding） |
-| `WECOM_CORP_ID` | 企微企业 ID（启用企微通道） |
-| `COS_SECRET_ID` / `COS_SECRET_KEY` | 腾讯云 COS（对象存储） |
-
-### 启动
+### Run
 
 ```bash
 npm start
 ```
 
-生产环境用 systemd：
+Production deployment:
 
 ```bash
 sudo systemctl enable --now feishu-bot.service
@@ -150,75 +159,45 @@ sudo systemctl enable --now feishu-bot.service
 
 ---
 
-## 管理工具
-
-内置交互式命令行管理工具：
-
-```bash
-# 安装
-npm link
-
-# 启动交互式菜单
-openmist
-
-# 子命令
-openmist status    # 系统状态
-openmist test      # 诊断测试
-openmist config    # 查看配置
-```
-
-五大功能：系统状态面板、三级配置树导航、API 连通性诊断、日志查看、服务控制。
-
-详细文档：[CLI 使用指南](docs/cli-guide.md)
-
----
-
-## 项目结构
+## Project Structure
 
 ```
-admin.js              # CLI 管理工具
 src/
-  index.js              # 入口，40 行
-  gateway.js            # 消息管线：记忆检索 → Claude → 追踪
-  claude.js             # Agent SDK 封装 + MCP 配置
-  hooks.js              # 安全守卫：命令拦截 + 路径白名单 + 审计日志
-  session.js            # 会话管理
+  index.js              # Entry point
+  gateway.js            # Message pipeline (memory -> Claude -> tracking)
+  claude.js             # Claude Agent SDK wrapper + MCP config
+  hooks.js              # PreToolUse security guard + PostToolUse audit
+  session.js            # Session store with expiry and rotation
   channels/
-    base.js             # 通道适配器基类
-    feishu.js           # 飞书适配器
-    wecom.js            # 企微适配器
+    base.js             # Channel adapter interface
+    feishu.js           # Feishu/Lark WebSocket adapter
+    wecom.js            # WeCom adapter
   memory/
-    memory-manager.js   # 记忆编排：检索 → 合并 → 注入
-    short-term.js       # 工作记忆（关键词匹配）
-    vector-store.js     # 向量检索（DashScope + sqlite-vec）
-    metrics.js          # 记忆指标
-  heartbeat.js          # 自愈守护进程
-  deployer.js           # nginx 子域名自动部署
-  mcp-*.mjs             # MCP 工具服务器
-agents/                 # 推荐引擎（可选的业务模块）
-scripts/                # 运维脚本
+    memory-manager.js   # Three-layer memory orchestrator
+    short-term.js       # Working memory (keyword search)
+    vector-store.js     # Semantic search (DashScope + sqlite-vec)
+    metrics.js          # Memory pipeline metrics
+  heartbeat.js          # Self-healing daemon
+  deployer.js           # Auto subdomain deployment (nginx)
+  mcp-feishu.mjs        # MCP: Feishu API (Bitable, Docs, Drive, Messaging)
+  mcp-video.mjs         # MCP: Video downloader
+  mcp-cos.mjs           # MCP: Tencent Cloud COS
+scripts/                # Ops automation (cron jobs, cleanup, reports)
 ```
 
 ---
 
-## MCP 工具
+## Contributing
 
-| 工具 | 文件 | 用途 |
-|------|------|------|
-| feishu-bitable | `src/mcp-bitable.mjs` | 读写飞书多维表格 |
-| video-downloader | `src/mcp-video.mjs` | 下载视频（YouTube、B站等） |
-| tencent-cos | `src/mcp-cos.mjs` | 腾讯云对象存储 |
+Contributions welcome:
 
-Claude 客户端自动启动这些 MCP 服务器，不需要单独配置。
-
----
-
-## 贡献
-
-欢迎 PR。一个 PR 做一件事，提交前跑通测试。
+1. Fork and create a feature branch
+2. One feature or fix per PR
+3. Test before submitting
+4. Clear commit messages
 
 ---
 
-## 许可证
+## License
 
 [MIT](LICENSE)
