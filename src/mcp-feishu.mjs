@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
-// Load .env from jarvis-gateway directory (quiet: suppress stdout noise)
+// Load .env from project root (quiet: suppress stdout noise)
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, "..", ".env"), quiet: true });
 

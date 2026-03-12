@@ -116,7 +116,7 @@ class MemoryManager {
 
     try {
       const os = require("os");
-      const SESSION_DIR = path.join(os.homedir(), ".claude", "projects", "-home-jarvis-jarvis-gateway");
+      const SESSION_DIR = process.env.SESSION_DIR || path.join(os.homedir(), ".claude", "projects", "-home-" + (process.env.USER || "user") + "-" + path.basename(process.cwd()));
       const sessionFile = path.join(SESSION_DIR, `${sessionId}.jsonl`);
       const stats = fs.statSync(sessionFile);
       if (stats.size >= COMPRESS_SIZE_THRESHOLD) return true;

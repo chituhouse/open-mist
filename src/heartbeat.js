@@ -7,8 +7,8 @@ const path = require('path');
 
 const INTERVAL = 30 * 60 * 1000; // 30 分钟
 const TIMEOUT = 300_000;          // 单次 Claude 巡检最多 5 分钟
-const PROJECT_DIR = process.env.PROJECT_DIR || '/home/jarvis/jarvis-gateway';
-const CLAUDE_BIN = process.env.CLAUDE_BIN || '/home/jarvis/.local/bin/claude';
+const PROJECT_DIR = process.env.PROJECT_DIR || process.cwd();
+const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
 const LOG_FILE = path.join(PROJECT_DIR, 'logs/heartbeat.log');
 
 // 孤儿进程特征：ppid=1 且命令匹配以下模式（SSH 遗留 / 卡死进程）

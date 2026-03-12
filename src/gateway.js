@@ -7,7 +7,7 @@ const os = require('os');
 
 const SESSION_MAX_SIZE_MB = 10;
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
-const SESSION_DIR = path.join(os.homedir(), '.claude', 'projects', '-home-jarvis-jarvis-gateway');
+const SESSION_DIR = process.env.SESSION_DIR || path.join(os.homedir(), '.claude', 'projects', '-home-' + (process.env.USER || 'user') + '-' + path.basename(process.cwd()));
 
 class Gateway {
   constructor({ session, claude, memory }) {
