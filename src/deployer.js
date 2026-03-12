@@ -2,11 +2,11 @@ const { execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const SITES_DIR = process.env.SITES_DIR || '/home/jarvis/sites';
+const SITES_DIR = process.env.SITES_DIR || '';
 const NGINX_SITES = process.env.NGINX_SITES_DIR || '/etc/nginx/sites-available';
 const NGINX_ENABLED = process.env.NGINX_ENABLED_DIR || '/etc/nginx/sites-enabled';
-const SSL_CERT = process.env.SSL_CERT_PATH || '/etc/letsencrypt/live/mistprism.com-0001/fullchain.pem';
-const SSL_KEY = process.env.SSL_KEY_PATH || '/etc/letsencrypt/live/mistprism.com-0001/privkey.pem';
+const SSL_CERT = process.env.SSL_CERT_PATH || '';
+const SSL_KEY = process.env.SSL_KEY_PATH || '';
 
 class Deployer {
   constructor() {
