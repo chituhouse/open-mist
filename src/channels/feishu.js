@@ -10,6 +10,9 @@ const https = require("https");
 const http = require("http");
 const execFileAsync = promisify(execFileCb);
 
+const BOT_NAME = process.env.BOT_NAME || 'OpenMist';
+const USER_TITLE = process.env.USER_TITLE || '';
+
 const STALE_THRESHOLD_MS = 30 * 1000;
 const SUPPORTED_MSG_TYPES = ["text", "image", "post", "file"];
 const DOWNLOADS_DIR = path.join(__dirname, "..", "..", "downloads");
@@ -113,7 +116,7 @@ class FeishuAdapter {
           mediaFiles.push(saved);
           text = "[用户发送了一张图片]";
         } else {
-          await this._reply(messageId, "抱歉先生，图片下载失败，请重新发送。");
+          await this._reply(messageId, `抱歉${USER_TITLE ? '，' + USER_TITLE : ''}，图片下载失败，请重新发送。`);
           return;
         }
       } else if (msgType === "post") {
@@ -134,7 +137,7 @@ class FeishuAdapter {
           mediaFiles.push(saved);
           text = `[用户发送了文件: ${fileName}]`;
         } else {
-          await this._reply(messageId, "抱歉先生，文件下载失败，请重新发送。");
+          await this._reply(messageId, `抱歉${USER_TITLE ? '，' + USER_TITLE : ''}，文件下载失败，请重新发送。`);
           return;
         }
       } else {
@@ -193,7 +196,7 @@ class FeishuAdapter {
       await this._addReaction(messageId, "DONE");
 
       // 推送新下载的媒体文件（视频直接在聊天中播放）
-      await this._pushNewDownloads(messageId, chatId, beforeDownloadTime);
+      await this._pushNewDownloads(chatId, beforeDownloadTime);
 
       // === 记忆指标收集 ===
       try {
@@ -223,7 +226,7 @@ class FeishuAdapter {
       this.bitable.logChat({
         chatId,
         userMessage: text,
-        jarvisReply: result.text,
+        botReply: result.text,
         responseTime: Math.round(responseTime * 10) / 10,
         status: "成功",
         sessionId: result.sessionId,
@@ -231,13 +234,13 @@ class FeishuAdapter {
     } catch (err) {
       const responseTime = (Date.now() - startTime) / 1000;
       console.error(`[Feishu] Error handling message ${messageId}:`, err.message);
-      await this._reply(messageId, `抱歉先生，处理时遇到了问题：${err.message}`);
+      await this._reply(messageId, `抱歉${USER_TITLE ? '，' + USER_TITLE : ''}，处理时遇到了问题：${err.message}`);
 
       this._pushLog(chatId, text, responseTime, '失败');
       this.bitable.logChat({
         chatId,
         userMessage: text,
-        jarvisReply: err.message,
+        botReply: err.message,
         responseTime: Math.round(responseTime * 10) / 10,
         status: "失败",
         sessionId: "",
@@ -756,7 +759,7 @@ class FeishuAdapter {
 
   _buildTaskCard() {
     return this._createCard('执行任务', 'turquoise', [
-      { tag: 'markdown', content: '让 Jarvis 在服务器上执行任务，完成后发送通知。\n\n**能做什么**\n- 服务器运维：检查状态、分析日志、清理文件、查看进程\n- 数据操作：抓取网页、更新多维表格、生成报告\n- 项目构建：生成网页/应用并自动部署\n- 脚本执行：运行任意 shell 或 Node.js 脚本' },
+      { tag: 'markdown', content: `让 ${BOT_NAME} 在服务器上执行任务，完成后发送通知。\n\n**能做什么**\n- 服务器运维：检查状态、分析日志、清理文件、查看进程\n- 数据操作：抓取网页、更新多维表格、生成报告\n- 项目构建：生成网页/应用并自动部署\n- 脚本执行：运行任意 shell 或 Node.js 脚本` },
       { tag: 'hr' },
       {
         tag: 'form',
@@ -786,15 +789,14 @@ class FeishuAdapter {
   }
 
   _buildHelpCard() {
-    const botName = process.env.BOT_NAME || 'OpenMist';
     const taskDomain = process.env.TASK_DOMAIN || 'your-domain.com';
-    return this._createCard(`${botName} 指令中心`, 'indigo', [
-      { tag: 'markdown', content: `点击按钮直接打开对应功能。也可以直接发文字、图片或文件与 ${botName} 对话。` },
+    return this._createCard(`${BOT_NAME} 指令中心`, 'indigo', [
+      { tag: 'markdown', content: `点击按钮直接打开对应功能。也可以直接发文字、图片或文件与 ${BOT_NAME} 对话。` },
       { tag: 'hr' },
       { tag: 'markdown', content: `**🔨 构建项目** \`/build\`\n生成网页或应用，自动部署到 ${taskDomain} 子域名\n适合：游戏、工具页、数据展示、静态或 Node.js 项目` },
       { tag: 'button', text: { tag: 'plain_text', content: '打开' }, type: 'primary', value: { action: 'open_command', cmd: 'build' } },
       { tag: 'hr' },
-      { tag: 'markdown', content: `**⚡ 执行任务** \`/task\`\n让 ${botName} 在服务器执行任务，完成后通知\n适合：运维操作、数据处理、日志分析、脚本执行` },
+      { tag: 'markdown', content: `**⚡ 执行任务** \`/task\`\n让 ${BOT_NAME} 在服务器执行任务，完成后通知\n适合：运维操作、数据处理、日志分析、脚本执行` },
       { tag: 'button', text: { tag: 'plain_text', content: '打开' }, type: 'primary', value: { action: 'open_command', cmd: 'task' } },
       { tag: 'hr' },
       { tag: 'markdown', content: '**更多功能**' },
@@ -1108,7 +1110,7 @@ class FeishuAdapter {
 
   // ==================== 媒体推送 ====================
 
-  async _pushNewDownloads(messageId, chatId, sinceTimestamp) {
+  async _pushNewDownloads(chatId, sinceTimestamp) {
     try {
       if (!fs.existsSync(DOWNLOADS_DIR)) return;
       const files = fs.readdirSync(DOWNLOADS_DIR);
@@ -1116,7 +1118,7 @@ class FeishuAdapter {
         const match = file.match(/^(\d+)-/);
         if (match && parseInt(match[1]) >= sinceTimestamp) {
           const filePath = path.join(DOWNLOADS_DIR, file);
-          await this._sendMediaToChat(messageId, chatId, filePath);
+          await this._sendMediaToChat(chatId, filePath);
         }
       }
     } catch (err) {
@@ -1124,7 +1126,7 @@ class FeishuAdapter {
     }
   }
 
-  async _sendMediaToChat(messageId, chatId, filePath) {
+  async _sendMediaToChat(chatId, filePath) {
     const fileName = path.basename(filePath);
     const ext = path.extname(filePath).toLowerCase();
     const fileStat = fs.statSync(filePath);
@@ -1449,7 +1451,7 @@ class FeishuAdapter {
       this.bitable.logChat({
         chatId,
         userMessage: `/build ${instruction}`,
-        jarvisReply: replyText,
+        botReply: replyText,
         responseTime: Math.round((Date.now() - startTime) / 100) / 10,
         status: "成功",
         sessionId: "",
@@ -1462,7 +1464,7 @@ class FeishuAdapter {
       this.bitable.logChat({
         chatId,
         userMessage: `/build ${instruction}`,
-        jarvisReply: err.message,
+        botReply: err.message,
         responseTime: Math.round((Date.now() - startTime) / 100) / 10,
         status: "失败",
         sessionId: "",

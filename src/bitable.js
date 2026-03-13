@@ -1,6 +1,7 @@
 const lark = require("@larksuiteoapi/node-sdk");
 
 const OWNER_OPEN_ID = process.env.FEISHU_OWNER_ID || "";
+const BOT_NAME = process.env.BOT_NAME || 'Bot';
 
 class BitableLogger {
   constructor() {
@@ -67,7 +68,7 @@ class BitableLogger {
     return { appToken, url };
   }
 
-  async logChat({ chatId, userMessage, jarvisReply, responseTime, status, sessionId }) {
+  async logChat({ chatId, userMessage, botReply, responseTime, status, sessionId }) {
     if (!this.enabled) return;
 
     try {
@@ -78,7 +79,7 @@ class BitableLogger {
             "时间": Date.now(),
             "群组": chatId,
             "用户消息": userMessage,
-            "Jarvis 回复": (jarvisReply || "").substring(0, 5000),
+            [BOT_NAME + ' 回复']: (botReply || "").substring(0, 5000),
             "响应时间(秒)": responseTime,
             "状态": status,
             "会话ID": sessionId || "",
