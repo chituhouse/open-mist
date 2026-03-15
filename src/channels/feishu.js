@@ -11,6 +11,8 @@ const https = require("https");
 const http = require("http");
 const execFileAsync = promisify(execFileCb);
 
+const { approveSkill } = require("../hooks");
+
 const STALE_THRESHOLD_MS = 30 * 1000;
 const SUPPORTED_MSG_TYPES = ["text", "image", "post", "file"];
 const DOWNLOADS_DIR = path.join(__dirname, "..", "..", "downloads");
@@ -435,6 +437,24 @@ class FeishuAdapter {
         return this._handleUpdateAction(chatId, false);
       }
 
+      // Skill Vetter 审核确认/拒绝
+      if (actionType === 'approve_skill') {
+        const pluginName = actionValue.pluginName;
+        const verdict = actionValue.verdict || 'SAFE';
+        const pendingTask = actionValue.pendingTask || null;
+        if (!pluginName) return { toast: { type: 'error', content: '缺少插件名称' } };
+        approveSkill(pluginName, verdict);
+        // 确认后直接安装，安装完成后续接原任务
+        this._installAndResumeAsync(chatId, pluginName, pendingTask);
+        return { toast: { type: 'success', content: `已批准「${pluginName}」，正在安装…` } };
+      }
+
+      if (actionType === 'deny_skill') {
+        const pluginName = actionValue.pluginName || '未知';
+        console.log(`[Security] Skill denied by user: ${pluginName}`);
+        return { toast: { type: 'info', content: `已拒绝安装「${pluginName}」` } };
+      }
+
       if (actionType === 'refresh_status') {
         return this._cardResponse(this._buildStatusCard(), '状态已刷新');
       }
@@ -776,7 +796,6 @@ class FeishuAdapter {
               {
                 tag: 'input',
                 name: 'memory_content',
-                label: { tag: 'plain_text', content: '记住' },
                 placeholder: { tag: 'plain_text', content: '记住：下周一有产品评审...' },
                 width: 'fill',
               },
@@ -797,7 +816,6 @@ class FeishuAdapter {
               {
                 tag: 'input',
                 name: 'search_query',
-                label: { tag: 'plain_text', content: '搜索' },
                 placeholder: { tag: 'plain_text', content: '搜索：关于 nginx 的配置...' },
                 width: 'fill',
               },
@@ -829,7 +847,6 @@ class FeishuAdapter {
             rows: 6,
             width: 'fill',
             placeholder: { tag: 'plain_text', content: '例：做一个倒计时到除夕的网页，背景用烟花动画' },
-            label: { tag: 'plain_text', content: '项目描述' },
             max_length: 500,
           },
           {
@@ -860,7 +877,6 @@ class FeishuAdapter {
             rows: 6,
             width: 'fill',
             placeholder: { tag: 'plain_text', content: '例：检查服务器磁盘使用情况，列出占用最大的 10 个目录' },
-            label: { tag: 'plain_text', content: '任务说明' },
             max_length: 500,
           },
           {
@@ -966,7 +982,6 @@ class FeishuAdapter {
             rows: 6,
             width: 'fill',
             placeholder: { tag: 'plain_text', content: cfg.placeholder },
-            label: { tag: 'plain_text', content: '描述' },
             max_length: 500,
           },
           {
@@ -993,24 +1008,21 @@ class FeishuAdapter {
           {
             tag: 'input',
             name: 'agent_name',
-            label: { tag: 'plain_text', content: '助手名称' },
-            placeholder: { tag: 'plain_text', content: '给助手起个名字' },
+            placeholder: { tag: 'plain_text', content: '助手名称' },
             default_value: 'Jarvis',
             width: 'fill',
           },
           {
             tag: 'input',
             name: 'user_name',
-            label: { tag: 'plain_text', content: '你希望被怎么称呼' },
-            placeholder: { tag: 'plain_text', content: '例：先生、老板、同学' },
+            placeholder: { tag: 'plain_text', content: '你希望被怎么称呼' },
             default_value: '先生',
             width: 'fill',
           },
           {
             tag: 'select_static',
             name: 'role',
-            label: { tag: 'plain_text', content: '使用场景' },
-            placeholder: { tag: 'plain_text', content: '选择使用场景' },
+            placeholder: { tag: 'plain_text', content: '使用场景' },
             options: [
               { text: { tag: 'plain_text', content: '个人助手' }, value: 'personal' },
               { text: { tag: 'plain_text', content: '开发辅助' }, value: 'dev' },
@@ -1020,8 +1032,7 @@ class FeishuAdapter {
           {
             tag: 'select_static',
             name: 'language',
-            label: { tag: 'plain_text', content: '回复语言' },
-            placeholder: { tag: 'plain_text', content: '选择语言' },
+            placeholder: { tag: 'plain_text', content: '回复语言' },
             options: [
               { text: { tag: 'plain_text', content: '中文' }, value: 'zh' },
               { text: { tag: 'plain_text', content: 'English' }, value: 'en' },
@@ -1688,6 +1699,80 @@ class FeishuAdapter {
     } catch (err) {
       console.error('[Feishu] Post-onboarding processing failed:', err.message);
       await this._reply(messageId, `抱歉，处理时遇到了问题：${err.message}`);
+    }
+  }
+
+  // ==================== Skill Vetter ====================
+
+  /**
+   * 构建 Skill Vetter 审查报告卡片
+   * @param {string} pluginName - 插件名称
+   * @param {string} report - 审查报告 markdown
+   * @param {string} verdict - SAFE/WARNING/DANGER/BLOCK
+   * @param {string} [pendingTask] - 触发安装的原始任务描述（用于审批后续接）
+   */
+  buildSkillVetterCard(pluginName, report, verdict, pendingTask) {
+    const colorMap = { SAFE: 'green', WARNING: 'orange', DANGER: 'red', BLOCK: 'red' };
+    const elements = [
+      { tag: 'markdown', content: report },
+    ];
+
+    if (pendingTask) {
+      elements.push({ tag: 'hr' });
+      elements.push({ tag: 'markdown', content: `**待续任务**: ${pendingTask}` });
+    }
+
+    if (verdict !== 'BLOCK') {
+      elements.push({ tag: 'hr' });
+      elements.push({
+        tag: 'column_set',
+        flex_mode: 'none',
+        background_style: 'default',
+        columns: [
+          {
+            tag: 'column', width: 'weighted', weight: 1,
+            elements: [{
+              tag: 'button',
+              text: { tag: 'plain_text', content: '确认安装' },
+              type: 'primary',
+              value: { action: 'approve_skill', pluginName, verdict, pendingTask: pendingTask || '' },
+            }],
+          },
+          {
+            tag: 'column', width: 'weighted', weight: 1,
+            elements: [{
+              tag: 'button',
+              text: { tag: 'plain_text', content: '拒绝' },
+              type: 'danger',
+              value: { action: 'deny_skill', pluginName },
+            }],
+          },
+        ],
+      });
+    }
+
+    return this._createCard(`Skill 审查：${pluginName}`, colorMap[verdict] || 'orange', elements);
+  }
+
+  async _installAndResumeAsync(chatId, pluginName, pendingTask) {
+    try {
+      const claudeBin = process.env.CLAUDE_BIN || 'claude';
+      const { stdout } = await execFileAsync(
+        claudeBin,
+        ['plugin', 'install', pluginName],
+        { timeout: 30000 }
+      );
+      const output = (stdout || '').trim();
+      await this._sendMessage(chatId, `插件「${pluginName}」安装完成。${output ? '\n' + output : ''}`);
+
+      // 有待续任务 → 安装完成后自动续接
+      if (pendingTask) {
+        await this._sendMessage(chatId, `继续执行之前的任务…`);
+        this._runGatewayTaskAsync(chatId, pendingTask);
+      }
+    } catch (err) {
+      console.error(`[Security] Plugin install failed: ${pluginName}`, err.message);
+      await this._sendMessage(chatId, `插件「${pluginName}」安装失败：${err.message}`);
     }
   }
 

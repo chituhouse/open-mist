@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const AUDIT_LOG = path.join(__dirname, "..", "logs", "audit.jsonl");
+const SKILL_WHITELIST = path.join(__dirname, "..", "data", "skill-whitelist.json");
 const logsDir = path.dirname(AUDIT_LOG);
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 
@@ -63,6 +64,11 @@ const BASH_BLOCKED = [
   /drop\s+table/i,
   /drop\s+database/i,
   /truncate\s+table/i,
+
+  // --- C2 fix: Bash 文件操作绕过 Write/Edit 拦截 ---
+  />\s*.*\.claude\/(skills|commands)\//,                    // echo/重定向写入
+  /\b(cp|mv|tee|install)\b.*\.claude\/(skills|commands)\//,  // 文件复制/移动
+  /\bln\s+-s.*\.claude\/(skills|commands)\//,               // 符号链接（M1 fix）
 ];
 
 // Write/Edit: 允许写入的路径
@@ -90,6 +96,7 @@ const WRITE_BLOCKED_FILES = [
   /id_rsa/,
   /id_ed25519/,
   /authorized_keys/,
+  /skill-whitelist\.json$/,          // C1 fix: 白名单文件只能通过 approveSkill() 写入
 ];
 
 // ============================================================
@@ -114,6 +121,22 @@ const securityGuard = async (input) => {
   if (input.tool_name === "Bash") {
     const cmd = String(input.tool_input?.command || "").trim();
     if (!cmd) return deny("空命令");
+
+    // Skill/Plugin 安装/更新审核网关
+    const installMatch = cmd.match(/\bclaude\s+plugin\s+(install|update)\s+(\S+)/);
+    if (installMatch) {
+      const action = installMatch[1];
+      const pluginName = installMatch[2];
+      if (!isSkillApproved(pluginName)) {
+        return deny(
+          `插件「${pluginName}」尚未通过安全审查。` +
+          `请先使用 /skill-vetter 对该插件进行审查，审查报告会发送到飞书由用户确认。` +
+          `用户确认后即可${action === 'update' ? '更新' : '安装'}。`
+        );
+      }
+      // 已审核通过，放行
+      console.log(`[Security] Plugin ${action} approved: ${pluginName}`);
+    }
 
     // 多命令链检查
     const subCommands = cmd.split(/&&|\|\||;/).map(s => s.trim()).filter(Boolean);
@@ -140,7 +163,13 @@ const securityGuard = async (input) => {
   return {};
 };
 
-function checkWritePath(filePath, toolName) {
+// Skill 目录路径模式（项目级 + 用户级）
+const SKILL_DIR_PATTERNS = [
+  /\.claude\/skills\//,
+  /\.claude\/commands\//,
+];
+
+function checkWritePath(rawPath, toolName) {
   const deny = (reason) => {
     console.warn(`[Security] BLOCKED ${toolName}: ${reason}`);
     return {
@@ -153,7 +182,24 @@ function checkWritePath(filePath, toolName) {
     };
   };
 
-  if (!filePath) return deny("空文件路径");
+  if (!rawPath) return deny("空文件路径");
+
+  // M2 fix: 路径标准化，防止 // 或 ./ 等变体绕过
+  const filePath = path.normalize(rawPath);
+
+  // Skill/Command 文件写入审核：必须通过 Skill Vetter 白名单
+  if (SKILL_DIR_PATTERNS.some(p => p.test(filePath))) {
+    const fileName = path.basename(filePath, '.md');
+    if (isSkillApproved(fileName)) {
+      console.log(`[Security] Skill write approved: ${filePath}`);
+      return {};  // 已审核，放行
+    }
+    return deny(
+      `Skill 文件「${fileName}」尚未通过安全审查。` +
+      `请先使用 /skill-vetter 对该 skill 内容进行审查，审查报告会发送到飞书由用户确认。` +
+      `用户确认后即可写入。`
+    );
+  }
 
   for (const pattern of WRITE_BLOCKED_FILES) {
     if (pattern.test(filePath)) {
@@ -315,7 +361,49 @@ const failureLogger = async (input) => {
 };
 
 // ============================================================
-// 7. 导出
+// 7. Skill 审核白名单
+// ============================================================
+
+function _loadWhitelist() {
+  try {
+    if (fs.existsSync(SKILL_WHITELIST)) {
+      return JSON.parse(fs.readFileSync(SKILL_WHITELIST, 'utf-8'));
+    }
+  } catch (e) {
+    console.warn('[Security] Whitelist load failed:', e.message);
+  }
+  return {};
+}
+
+function isSkillApproved(name) {
+  const wl = _loadWhitelist();
+  return !!wl[name];
+}
+
+const VALID_SKILL_NAME = /^[a-zA-Z0-9._-]+$/;
+
+function approveSkill(name, verdict) {
+  // H2 fix: 格式校验
+  if (!name || !VALID_SKILL_NAME.test(name)) {
+    console.warn(`[Security] Invalid skill name rejected: ${name}`);
+    return false;
+  }
+  // L2 fix: BLOCK 级别禁止写入白名单
+  if (verdict === 'BLOCK') {
+    console.warn(`[Security] BLOCK verdict cannot be approved: ${name}`);
+    return false;
+  }
+  const wl = _loadWhitelist();
+  wl[name] = { approvedAt: new Date().toISOString(), verdict };
+  const dir = path.dirname(SKILL_WHITELIST);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(SKILL_WHITELIST, JSON.stringify(wl, null, 2));
+  console.log(`[Security] Skill approved: ${name}`);
+  return true;
+}
+
+// ============================================================
+// 8. 导出
 // ============================================================
 
 function setPostToolUseCallback(fn) { onPostToolUse = fn; }
@@ -337,4 +425,6 @@ module.exports = {
   setPreCompactCallback,
   getExecutionLog,
   clearExecutionLog,
+  approveSkill,
+  isSkillApproved,
 };
