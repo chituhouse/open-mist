@@ -1,6 +1,6 @@
 #\!/bin/bash
 # 清理 media/ 下超过 7 天的文件
-MEDIA_DIR="/home/jarvis/jarvis-gateway/media"
+MEDIA_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}/media"
 
 if [ \! -d "$MEDIA_DIR" ]; then
   echo "[$(date)] media/ 目录不存在，跳过"
