@@ -107,7 +107,7 @@ flowchart TB
 ```bash
 npm install -g @anthropic-ai/claude-code
 
-git clone https://github.com/chituhouse/open-mist.git
+git clone https://github.com/mistprismlabs/open-mist.git
 cd open-mist
 npm install
 ```
