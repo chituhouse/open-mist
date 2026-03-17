@@ -293,4 +293,4 @@ class ClaudeClient {
   }
 }
 
-module.exports = { ClaudeClient, parseJSON, MEDIA_DIR };
+module.exports = { ClaudeClient, parseJSON, MEDIA_DIR, _fixUnescapedQuotes };

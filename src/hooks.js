@@ -427,4 +427,8 @@ module.exports = {
   clearExecutionLog,
   approveSkill,
   isSkillApproved,
+  // Exported for testing
+  BASH_BLOCKED,
+  WRITE_ALLOWED,
+  checkWritePath,
 };
