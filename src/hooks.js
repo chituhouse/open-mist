@@ -290,6 +290,8 @@ function clearExecutionLog(sessionId) {
 let onPostToolUse = null;
 let onSessionEnd = null;
 let onPreCompact = null;
+let onPostCompact = null;
+let onStopFailure = null;
 
 const toolUseTracker = async (input) => {
   if (input.hook_event_name !== "PostToolUse") return {};
@@ -323,6 +325,47 @@ const preCompactHook = async (input) => {
       }
     }
   }
+  return {};
+};
+
+const postCompactHook = async (input) => {
+  if (input.hook_event_name === "PostCompact") {
+    console.log(`[Hooks] PostCompact completed: ${input.session_id}`);
+    if (onPostCompact) {
+      try { await onPostCompact(input.session_id); } catch (e) {
+        console.error("[Hooks] postCompact error:", e.message);
+      }
+    }
+  }
+  return {};
+};
+
+// ============================================================
+// 6.5 API 错误处理（StopFailure）
+// ============================================================
+
+const stopFailureHook = async (input) => {
+  if (input.hook_event_name !== "StopFailure") return {};
+
+  const sessionId = input.session_id;
+  const error = input.error || input.stop_reason || 'unknown';
+  console.error(`[Hooks] StopFailure: session=${sessionId}, error=${JSON.stringify(error).substring(0, 200)}`);
+
+  // 审计日志
+  const entry = {
+    ts: new Date().toISOString(),
+    event: 'StopFailure',
+    error: JSON.stringify(error).substring(0, 500),
+    sessionId,
+  };
+  fs.appendFileSync(AUDIT_LOG, JSON.stringify(entry) + "\n");
+
+  if (onStopFailure) {
+    try { await onStopFailure(sessionId, error); } catch (e) {
+      console.error("[Hooks] stopFailure callback error:", e.message);
+    }
+  }
+
   return {};
 };
 
@@ -409,6 +452,8 @@ function approveSkill(name, verdict) {
 function setPostToolUseCallback(fn) { onPostToolUse = fn; }
 function setSessionEndCallback(fn) { onSessionEnd = fn; }
 function setPreCompactCallback(fn) { onPreCompact = fn; }
+function setPostCompactCallback(fn) { onPostCompact = fn; }
+function setStopFailureCallback(fn) { onStopFailure = fn; }
 
 const hooks = {
   PreToolUse: [{ hooks: [securityGuard] }],
@@ -416,6 +461,8 @@ const hooks = {
   PostToolUseFailure: [{ hooks: [failureLogger] }],
   Stop: [{ hooks: [sessionEndHook] }],
   PreCompact: [{ hooks: [preCompactHook] }],
+  PostCompact: [{ hooks: [postCompactHook] }],
+  StopFailure: [{ hooks: [stopFailureHook] }],
 };
 
 module.exports = {
@@ -423,6 +470,8 @@ module.exports = {
   setPostToolUseCallback,
   setSessionEndCallback,
   setPreCompactCallback,
+  setPostCompactCallback,
+  setStopFailureCallback,
   getExecutionLog,
   clearExecutionLog,
   approveSkill,

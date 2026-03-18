@@ -1,4 +1,4 @@
-const { setPostToolUseCallback, setSessionEndCallback, setPreCompactCallback } = require('./hooks');
+const { setPostToolUseCallback, setSessionEndCallback, setPreCompactCallback, setPostCompactCallback, setStopFailureCallback } = require('./hooks');
 const { MemoryManager } = require('./memory');
 const { MemoryMetrics } = require('./memory/metrics');
 const fs = require('fs');
@@ -38,6 +38,23 @@ class Gateway {
         this.memory.recordToolUse(sessionId, toolName, toolInput);
       } catch (err) {
         // 非阻塞：记录失败不影响主流程
+      }
+    });
+
+    // Hook: 上下文压缩完成后确认记忆追踪已重启
+    setPostCompactCallback(async (sessionId) => {
+      const conv = this.memory.activeConversations.get(sessionId);
+      if (conv) {
+        console.log(`[Gateway] PostCompact: memory tracking active for ${sessionId.substring(0, 8)}...`);
+      }
+    });
+
+    // Hook: API 错误（限流/认证失败等）— 标记 session 异常
+    setStopFailureCallback(async (sessionId, error) => {
+      console.error(`[Gateway] StopFailure: session ${sessionId?.substring(0, 8)}... error:`, error);
+      // 清理该 session 的活跃对话追踪，避免脏状态
+      if (sessionId) {
+        this.memory.activeConversations.delete(sessionId);
       }
     });
   }
