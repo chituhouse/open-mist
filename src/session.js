@@ -89,14 +89,17 @@ class SessionStore {
 
   /**
    * 将当前会话移入历史，重置 sessionId/name/createdAt
+   * @param {string} chatId
+   * @param {{ firstMessage?: string }} [opts]
    */
-  archiveCurrent(chatId) {
+  archiveCurrent(chatId, { firstMessage } = {}) {
     const s = this.sessions[chatId];
     if (!s || !s.sessionId) return;
     if (!s.history) s.history = [];
     s.history.unshift({
       sessionId: s.sessionId,
       name: s.name || null,
+      firstMessage: firstMessage || null,
       createdAt: s.createdAt || s.updatedAt,
       endedAt: Date.now(),
     });
@@ -129,8 +132,8 @@ class SessionStore {
     this._save();
   }
 
-  clear(chatId) {
-    this.archiveCurrent(chatId);
+  clear(chatId, opts) {
+    this.archiveCurrent(chatId, opts);
   }
 }
 

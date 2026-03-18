@@ -20,6 +20,9 @@ const MODULES = [
   { name: 'memory/vector-store', path: '../src/memory/vector-store' },
   { name: 'channels/base', path: '../src/channels/base' },
   { name: 'channels/feishu', path: '../src/channels/feishu' },
+  { name: 'channels/feishu-cards', path: '../src/channels/feishu-cards' },
+  { name: 'channels/feishu-message-api', path: '../src/channels/feishu-message-api' },
+  { name: 'channels/feishu-media', path: '../src/channels/feishu-media' },
   { name: 'channels/wecom', path: '../src/channels/wecom' },
 ];
 

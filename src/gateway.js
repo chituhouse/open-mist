@@ -276,8 +276,18 @@ class Gateway {
   async switchSession(chatId, targetSessionId) {
     const currentSessionId = this.session.get(chatId);
     if (currentSessionId && currentSessionId !== targetSessionId) {
+      // 取首条用户消息作为历史摘要
+      const conv = this.memory.activeConversations?.get(currentSessionId);
+      let firstMessage = null;
+      if (conv?.messages?.length) {
+        const first = conv.messages.find(m => m.role === 'user');
+        if (first?.content) {
+          firstMessage = first.content.substring(0, 30);
+          if (first.content.length > 30) firstMessage += '…';
+        }
+      }
       await this._endSession(currentSessionId);
-      this.session.archiveCurrent(chatId);
+      this.session.archiveCurrent(chatId, { firstMessage });
     }
     this.session.restore(chatId, targetSessionId);
   }
