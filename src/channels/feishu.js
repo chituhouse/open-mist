@@ -467,7 +467,7 @@ class FeishuAdapter {
         return this._cardResponse(this._buildSessionCard(chatId, '已切换到历史会话'), '已切换');
       }
 
-      if (action.action_type === 'form_submit') {
+      if (action.action_type === 'form_submit' || action.form_value) {
         if (action.form_value?.project_desc !== undefined) {
           const desc = action.form_value.project_desc.trim();
           if (!desc) return { toast: { type: 'error', content: '请输入项目描述' } };
