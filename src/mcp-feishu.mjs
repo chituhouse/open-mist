@@ -399,11 +399,15 @@ server.tool(
 // Tool: Delete task
 server.tool(
   "task_delete",
-  "Delete a task",
+  "Delete a task. Requires confirmed=true to actually execute.",
   {
     task_id: z.string().describe("Task ID to delete"),
+    confirmed: z.boolean().optional().describe("Must be true to actually delete. Omit or false to get a confirmation prompt first."),
   },
-  async ({ task_id }) => {
+  async ({ task_id, confirmed }) => {
+    if (!confirmed) {
+      return { content: [{ type: "text", text: `⚠️ 即将删除任务 ${task_id}，此操作不可撤销。\n请向用户确认后，以 confirmed=true 重新调用。` }] };
+    }
     try {
       const resp = await client.task.task.delete({
         path: { task_id },
@@ -581,12 +585,16 @@ server.tool(
 // Tool: Delete calendar event
 server.tool(
   "calendar_delete_event",
-  "Delete an event from a calendar",
+  "Delete an event from a calendar. Requires confirmed=true to actually execute.",
   {
     calendar_id: z.string().describe("Calendar ID"),
     event_id: z.string().describe("Event ID to delete"),
+    confirmed: z.boolean().optional().describe("Must be true to actually delete. Omit or false to get a confirmation prompt first."),
   },
-  async ({ calendar_id, event_id }) => {
+  async ({ calendar_id, event_id, confirmed }) => {
+    if (!confirmed) {
+      return { content: [{ type: "text", text: `⚠️ 即将删除日历事件 ${event_id}，此操作不可撤销。\n请向用户确认后，以 confirmed=true 重新调用。` }] };
+    }
     try {
       const resp = await client.calendar.calendarEvent.delete({
         path: { calendar_id, event_id },
@@ -1045,12 +1053,16 @@ server.tool(
 // Tool: Delete file
 server.tool(
   "drive_delete_file",
-  "Delete a file from Feishu Drive",
+  "Delete a file from Feishu Drive. Requires confirmed=true to actually execute.",
   {
     file_token: z.string().describe("File token to delete"),
     type: z.string().describe("File type: doc, sheet, bitable, docx, file, folder"),
+    confirmed: z.boolean().optional().describe("Must be true to actually delete. Omit or false to get a confirmation prompt first."),
   },
-  async ({ file_token, type }) => {
+  async ({ file_token, type, confirmed }) => {
+    if (!confirmed) {
+      return { content: [{ type: "text", text: `⚠️ 即将删除云文档 ${file_token}（类型: ${type}），此操作不可撤销。\n请向用户确认后，以 confirmed=true 重新调用。` }] };
+    }
     try {
       const resp = await client.drive.file.delete({
         path: { file_token },

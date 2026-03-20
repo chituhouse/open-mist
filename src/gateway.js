@@ -1,4 +1,4 @@
-const { setPostToolUseCallback, setSessionEndCallback, setPreCompactCallback, setPostCompactCallback, setStopFailureCallback } = require('./hooks');
+const { setPostToolUseCallback, setSessionEndCallback, setPreCompactCallback, setPostCompactCallback, setStopFailureCallback, setToolFailureCallback } = require("./hooks");
 const { MemoryManager } = require('./memory');
 const { MemoryMetrics } = require('./memory/metrics');
 const fs = require('fs');
@@ -56,6 +56,23 @@ class Gateway {
       if (sessionId) {
         this.memory.activeConversations.delete(sessionId);
       }
+    });
+
+    // Hook: 工具执行失败 — 发飞书通知（2分钟内最多1次，防刷屏）
+    let _lastToolFailureNotify = 0;
+    setToolFailureCallback(async (sessionId, toolName, error) => {
+      const now = Date.now();
+      if (now - _lastToolFailureNotify < 2 * 60 * 1000) return;
+      _lastToolFailureNotify = now;
+      const { spawn } = require("child_process");
+      const msg = [
+        "⚠️ Jarvis 工具执行失败",
+        "工具: " + toolName,
+        "错误: " + error.substring(0, 150),
+        "Session: " + (sessionId ? sessionId.substring(0, 8) : "unknown"),
+      ].join("\n");
+      const notifyScript = require("path").join(__dirname, "..", "scripts", "send-notify.js");
+      spawn("node", [notifyScript, msg], { detached: true, stdio: "ignore" }).unref();
     });
   }
 

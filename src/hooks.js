@@ -292,6 +292,7 @@ let onSessionEnd = null;
 let onPreCompact = null;
 let onPostCompact = null;
 let onStopFailure = null;
+let onToolFailure = null;
 
 const toolUseTracker = async (input) => {
   if (input.hook_event_name !== "PostToolUse") return {};
@@ -400,6 +401,10 @@ const failureLogger = async (input) => {
   });
 
   console.warn(`[Hooks] Tool failed: ${toolName} — ${error.substring(0, 100)}`);
+  if (onToolFailure) {
+    try { await onToolFailure(sessionId, toolName, error, input.tool_input || {}); }
+    catch (e) { console.warn('[Hooks] toolFailure callback error:', e.message); }
+  }
   return {};
 };
 
@@ -454,6 +459,7 @@ function setSessionEndCallback(fn) { onSessionEnd = fn; }
 function setPreCompactCallback(fn) { onPreCompact = fn; }
 function setPostCompactCallback(fn) { onPostCompact = fn; }
 function setStopFailureCallback(fn) { onStopFailure = fn; }
+function setToolFailureCallback(fn) { onToolFailure = fn; }
 
 const hooks = {
   PreToolUse: [{ hooks: [securityGuard] }],
@@ -472,6 +478,7 @@ module.exports = {
   setPreCompactCallback,
   setPostCompactCallback,
   setStopFailureCallback,
+  setToolFailureCallback,
   getExecutionLog,
   clearExecutionLog,
   approveSkill,
