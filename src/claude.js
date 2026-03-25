@@ -198,7 +198,7 @@ class ClaudeClient {
       hooks,
     };
 
-    const { effort, onProgress } = chatOptions;
+    const { effort, onProgress, onRetry } = chatOptions;
     if (effort) {
       options.effort = effort;
     }
@@ -274,6 +274,14 @@ class ClaudeClient {
           if (onProgress && message.summary) {
             onProgress(message.summary);
           }
+        }
+        if (message.type === 'system' && message.subtype === 'api_retry') {
+          const attempt = message.attempt ?? 1;
+          const maxRetries = message.max_retries ?? '?';
+          const status = message.error_status ?? 'unknown';
+          console.warn(`[Claude] API retry ${attempt}/${maxRetries}, status: ${status}`);
+          if (onRetry) onRetry({ attempt, maxRetries, errorStatus: status });
+          if (onProgress) onProgress({ type: 'retry', attempt, maxRetries, errorStatus: status });
         }
         if (message.type === 'result') {
           resultSessionId = message.session_id || resultSessionId;

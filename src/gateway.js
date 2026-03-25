@@ -16,6 +16,7 @@ class Gateway {
     this.memory = memory || new MemoryManager();
     this.metrics = new MemoryMetrics();
     this.onProgress = null;
+    this._retryState = new Map(); // chatId → {attempt, maxRetries, errorStatus, ts}
 
     // Hook: 会话结束时保存摘要
     setSessionEndCallback(async (sessionId) => {
@@ -68,6 +69,7 @@ class Gateway {
       console.error(`[Gateway] StopFailure: session ${sessionId?.substring(0, 8)}... error:`, errorStr.substring(0, 200));
 
       // 清理该 session 的活跃对话追踪，避免脏状态
+      const conv = this.memory.activeConversations.get(sessionId);
       if (sessionId) {
         this.memory.activeConversations.delete(sessionId);
       }
@@ -77,16 +79,27 @@ class Gateway {
       if (now - _lastStopFailureNotify < 5 * 60 * 1000) return;
       _lastStopFailureNotify = now;
 
-      const lower = errorStr.toLowerCase();
+      // 判断是否刚经历过重试（60秒内有重试记录 = 重试耗尽，否则 = 突发失败）
+      const chatId = conv?.chatId;
+      const retryState = chatId ? this._retryState.get(chatId) : null;
+      const wasRetrying = retryState && (now - retryState.ts < 60 * 1000);
+
       let emoji, category;
-      if (lower.includes('rate') || lower.includes('429') || lower.includes('throttl')) {
-        emoji = '🚦'; category = '限流 (Rate Limit)';
-      } else if (lower.includes('auth') || lower.includes('401') || lower.includes('403') || lower.includes('key')) {
-        emoji = '🔑'; category = '认证失败 (Auth Error)';
-      } else if (lower.includes('500') || lower.includes('502') || lower.includes('503') || lower.includes('server')) {
-        emoji = '💥'; category = '服务端错误 (Server Error)';
+      if (wasRetrying) {
+        emoji = '⏳';
+        category = `重试耗尽（${retryState.attempt}/${retryState.maxRetries} 次后失败，状态 ${retryState.errorStatus}）`;
+        if (chatId) this._retryState.delete(chatId); // 清理重试状态
       } else {
-        emoji = '❌'; category = '未知错误';
+        const lower = errorStr.toLowerCase();
+        if (lower.includes('rate') || lower.includes('429') || lower.includes('throttl')) {
+          emoji = '🚦'; category = '限流 (Rate Limit)';
+        } else if (lower.includes('auth') || lower.includes('401') || lower.includes('403') || lower.includes('key')) {
+          emoji = '🔑'; category = '认证失败 (Auth Error)';
+        } else if (lower.includes('500') || lower.includes('502') || lower.includes('503') || lower.includes('server')) {
+          emoji = '💥'; category = '服务端错误 (Server Error)';
+        } else {
+          emoji = '❌'; category = '未知错误';
+        }
       }
 
       const { spawn } = require("child_process");
@@ -173,9 +186,10 @@ class Gateway {
 
     // 5. Claude 调用（resume 失败自动重试）
     const onProgress = this.onProgress ? (summary) => this.onProgress(chatId, summary) : undefined;
+    const onRetry = (info) => { this._retryState.set(chatId, { ...info, ts: Date.now() }); };
     let response;
     try {
-      response = await this.claude.chat(enrichedPrompt, existingSessionId, mediaFiles, { effort, onProgress });
+      response = await this.claude.chat(enrichedPrompt, existingSessionId, mediaFiles, { effort, onProgress, onRetry });
     } catch (err) {
       if (existingSessionId && err.message.includes('exited with code')) {
         console.warn(`[Gateway] Resume failed (${err.message}), retrying with fresh session`);

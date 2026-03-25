@@ -34,9 +34,17 @@ class FeishuAdapter {
     // 注册进度回调：优先 edit 占位消息，无占位时新发消息
     this.gateway.setProgressCallback(async (chatId, info) => {
       const now = Date.now();
-      if (now - (this._lastProgress.get(chatId) || 0) < 30000) return;
-      this._lastProgress.set(chatId, now);
-      const text = typeof info === 'string' ? info : (info?.summary || info?.description || null);
+      // 重试通知不受防刷屏限制（用户需即时感知）
+      const isRetry = info?.type === 'retry';
+      if (!isRetry && now - (this._lastProgress.get(chatId) || 0) < 30000) return;
+      if (!isRetry) this._lastProgress.set(chatId, now);
+
+      let text;
+      if (isRetry) {
+        text = `⏳ API 重试中（第 ${info.attempt}/${info.maxRetries} 次，状态 ${info.errorStatus}）`;
+      } else {
+        text = typeof info === 'string' ? info : (info?.summary || info?.description || null);
+      }
       if (!text) return;
       const placeholderId = this._placeholders.get(chatId);
       if (placeholderId) {
