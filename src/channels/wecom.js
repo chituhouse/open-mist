@@ -5,6 +5,7 @@ const path = require('path');
 const { parseStringPromise } = require('xml2js');
 const WebSocket = require('ws');
 const { MEDIA_DIR } = require('../claude');
+const { UserProfileStore } = require('../user-profile');
 
 const WECOM_API = 'https://qyapi.weixin.qq.com/cgi-bin';
 const MAX_TEXT_LEN = 2048;
@@ -48,6 +49,8 @@ class WeComAdapter {
     // Access Token 缓存
     this._accessToken = null;
     this._tokenExpiry = 0;
+
+    this.userProfile = new UserProfileStore();
 
     if (!fs.existsSync(MEDIA_DIR)) {
       fs.mkdirSync(MEDIA_DIR, { recursive: true });
@@ -394,6 +397,7 @@ class WeComAdapter {
     });
 
     try {
+      const profileId = isGroup ? msg.chatId : msg.userId;
       const result = await this.gateway.processMessage({
         chatId: sessionId,
         text,
@@ -401,6 +405,7 @@ class WeComAdapter {
         chatType: isGroup ? 'group' : 'p2p',
         channelLabel,
         senderName: isGroup ? msg.userId : undefined,
+        userProfile: this.userProfile.get(profileId),
       });
 
       const content = this._transformForBot(result.text);
@@ -726,6 +731,7 @@ class WeComAdapter {
     console.log(`[WeCom] [app] ${channelLabel} from ${userId}: ${text.substring(0, 80)}`);
 
     try {
+      const profileId = isGroup ? chatId : userId;
       const result = await this.gateway.processMessage({
         chatId: sessionId,
         text,
@@ -733,6 +739,7 @@ class WeComAdapter {
         chatType: isGroup ? 'group' : 'p2p',
         channelLabel,
         senderName: isGroup ? userId : undefined,
+        userProfile: this.userProfile.get(profileId),
       });
 
       await this._sendAppReply(userId, result.text);

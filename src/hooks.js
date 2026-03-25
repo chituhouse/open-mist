@@ -331,9 +331,10 @@ const preCompactHook = async (input) => {
 
 const postCompactHook = async (input) => {
   if (input.hook_event_name === "PostCompact") {
-    console.log(`[Hooks] PostCompact completed: ${input.session_id}`);
+    const summary = input.compact_summary || null;
+    console.log(`[Hooks] PostCompact completed: ${input.session_id}${summary ? ` (summary: ${summary.substring(0, 80)}...)` : ''}`);
     if (onPostCompact) {
-      try { await onPostCompact(input.session_id); } catch (e) {
+      try { await onPostCompact(input.session_id, summary); } catch (e) {
         console.error("[Hooks] postCompact error:", e.message);
       }
     }

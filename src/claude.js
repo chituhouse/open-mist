@@ -188,6 +188,7 @@ class ClaudeClient {
       allowDangerouslySkipPermissions: true,
       maxTurns: 50,
       settingSources: ['project', 'user'],
+      agentProgressSummaries: true,
       mcpServers: {
         "feishu": MCP_FEISHU_SERVER,
         "video-downloader": MCP_VIDEO_SERVER,
@@ -197,8 +198,9 @@ class ClaudeClient {
       hooks,
     };
 
-    if (chatOptions.effort) {
-      options.effort = chatOptions.effort;
+    const { effort, onProgress } = chatOptions;
+    if (effort) {
+      options.effort = effort;
     }
 
     if (sessionId) {
@@ -257,6 +259,20 @@ class ClaudeClient {
           if (message.mcp_servers) {
             const serverInfo = Array.isArray(message.mcp_servers) ? message.mcp_servers.map(s => `${s.name}:${s.status}`) : Object.keys(message.mcp_servers);
             console.log('[Claude] MCP servers:', serverInfo.join(', '));
+          }
+        }
+        if (message.type === 'assistant' && message.message?.content) {
+          if (onProgress) {
+            const textBlocks = message.message.content.filter(b => b.type === 'text');
+            if (textBlocks.length > 0) {
+              const text = textBlocks.map(b => b.text).join('');
+              if (text.trim()) onProgress(text);
+            }
+          }
+        }
+        if (message.type === 'system' && message.subtype === 'task_progress') {
+          if (onProgress && message.summary) {
+            onProgress(message.summary);
           }
         }
         if (message.type === 'result') {

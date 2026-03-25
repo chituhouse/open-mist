@@ -497,6 +497,20 @@ class MemoryManager {
     console.log(`[MemoryManager] Cleanup: ${deleted} expired conversations removed`);
     return deleted;
   }
+
+  // ==================== Compact Summary 存储 ====================
+
+  async storeCompactSummary(sessionId, summary) {
+    const conv = this.activeConversations.get(sessionId);
+    const id = `compact-${sessionId.substring(0, 8)}-${Date.now()}`;
+    await this.vectorStore.store(id, summary, {
+      chatId: conv?.chatId || 'unknown',
+      userId: conv?.userId || DEFAULT_USER_ID,
+      importance: 7,
+      type: 'compact_summary',
+      ts: new Date().toISOString(),
+    });
+  }
 }
 
 module.exports = { MemoryManager };

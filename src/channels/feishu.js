@@ -28,6 +28,21 @@ class FeishuAdapter {
     this.taskExecutor = taskExecutor;
     this.deployer = deployer;
     this.handled = new Map();
+    this._lastProgress = new Map(); // chatId → timestamp，进度防刷屏
+
+    // 注册进度回调：后台任务进度推送到飞书
+    this.gateway.setProgressCallback(async (chatId, info) => {
+      const now = Date.now();
+      if (now - (this._lastProgress.get(chatId) || 0) < 30000) return;
+      this._lastProgress.set(chatId, now);
+      const text = typeof info === 'string' ? info : (info?.summary || info?.description || null);
+      if (!text) return;
+      try {
+        await this._sendMessage(chatId, `⚙️ ${text}`);
+      } catch (e) {
+        console.warn('[Feishu] progress notify failed:', e.message);
+      }
+    });
 
     this.client = new lark.Client({
       appId: process.env.FEISHU_APP_ID,

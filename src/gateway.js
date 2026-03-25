@@ -15,6 +15,7 @@ class Gateway {
     this.claude = claude;
     this.memory = memory || new MemoryManager();
     this.metrics = new MemoryMetrics();
+    this.onProgress = null;
 
     // Hook: 会话结束时保存摘要
     setSessionEndCallback(async (sessionId) => {
@@ -41,11 +42,22 @@ class Gateway {
       }
     });
 
-    // Hook: 上下文压缩完成后确认记忆追踪已重启
-    setPostCompactCallback(async (sessionId) => {
-      const conv = this.memory.activeConversations.get(sessionId);
-      if (conv) {
-        console.log(`[Gateway] PostCompact: memory tracking active for ${sessionId.substring(0, 8)}...`);
+    // Hook: 上下文压缩完成后，用 compact_summary 存入向量记忆
+    setPostCompactCallback(async (sessionId, compactSummary) => {
+      console.log(`[Gateway] PostCompact: session=${sessionId?.substring(0, 8)}, hasSummary=${!!compactSummary}`);
+
+      if (sessionId) {
+        if (compactSummary && compactSummary.trim()) {
+          try {
+            await this.memory.storeCompactSummary(sessionId, compactSummary);
+            console.log(`[Gateway] PostCompact: compact_summary stored (${compactSummary.length} chars)`);
+          } catch (e) {
+            console.warn('[Gateway] PostCompact: store summary failed:', e.message);
+          }
+        }
+        if (this.memory.activeConversations.has(sessionId)) {
+          console.log(`[Gateway] PostCompact: memory tracking active for ${sessionId.substring(0, 8)}...`);
+        }
       }
     });
 
@@ -109,6 +121,8 @@ class Gateway {
    * 核心处理管线：记忆检索 → Session → Claude → 记忆追踪
    * @returns {{ text, sessionId, isNewSession, pipelineMetrics }}
    */
+  setProgressCallback(fn) { this.onProgress = fn; }
+
   async processMessage({ chatId, text, mediaFiles = [], chatType, channelLabel, senderName, userProfile, userId }) {
     // 1. 记忆检索
     let memoryContext = '';
@@ -158,16 +172,17 @@ class Gateway {
     }
 
     // 5. Claude 调用（resume 失败自动重试）
+    const onProgress = this.onProgress ? (summary) => this.onProgress(chatId, summary) : undefined;
     let response;
     try {
-      response = await this.claude.chat(enrichedPrompt, existingSessionId, mediaFiles, { effort });
+      response = await this.claude.chat(enrichedPrompt, existingSessionId, mediaFiles, { effort, onProgress });
     } catch (err) {
       if (existingSessionId && err.message.includes('exited with code')) {
         console.warn(`[Gateway] Resume failed (${err.message}), retrying with fresh session`);
         this.session.clear(chatId);
         isNewSession = true;
         try {
-          response = await this.claude.chat(enrichedPrompt, null, mediaFiles, { effort });
+          response = await this.claude.chat(enrichedPrompt, null, mediaFiles, { effort, onProgress });
         } catch (retryErr) {
           // P5-3: 重试也失败时保存 sessionId，防止会话丢失
           if (retryErr.sessionId) {
