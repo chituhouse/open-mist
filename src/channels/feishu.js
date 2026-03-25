@@ -29,18 +29,24 @@ class FeishuAdapter {
     this.deployer = deployer;
     this.handled = new Map();
     this._lastProgress = new Map(); // chatId → timestamp，进度防刷屏
+    this._placeholders = new Map(); // chatId → placeholderId，流式占位消息
 
-    // 注册进度回调：后台任务进度推送到飞书
+    // 注册进度回调：优先 edit 占位消息，无占位时新发消息
     this.gateway.setProgressCallback(async (chatId, info) => {
       const now = Date.now();
       if (now - (this._lastProgress.get(chatId) || 0) < 30000) return;
       this._lastProgress.set(chatId, now);
       const text = typeof info === 'string' ? info : (info?.summary || info?.description || null);
       if (!text) return;
-      try {
-        await this._sendMessage(chatId, `⚙️ ${text}`);
-      } catch (e) {
-        console.warn('[Feishu] progress notify failed:', e.message);
+      const placeholderId = this._placeholders.get(chatId);
+      if (placeholderId) {
+        await this.messageAPI.editMessage(placeholderId, `⏳ ${text}`).catch(() => {});
+      } else {
+        try {
+          await this._sendMessage(chatId, `⚙️ ${text}`);
+        } catch (e) {
+          console.warn('[Feishu] progress notify failed:', e.message);
+        }
       }
     });
 
@@ -250,6 +256,10 @@ class FeishuAdapter {
       // === 通过 Gateway 处理核心管线 ===
       await this._addReaction(messageId, "OnIt");
 
+      // 发占位消息，处理完成后 edit 为正式回复
+      const placeholderId = await this._sendPlaceholder(chatId);
+      if (placeholderId) this._placeholders.set(chatId, placeholderId);
+
       const beforeDownloadTime = Date.now();
       const result = await this.gateway.processMessage({
         chatId,
@@ -262,9 +272,22 @@ class FeishuAdapter {
         userId: senderId,
       });
 
+      // 清理占位映射
+      this._placeholders.delete(chatId);
+
       const responseTime = (Date.now() - startTime) / 1000;
 
-      await this._reply(messageId, result.text);
+      // 结果回填：短消息 edit 占位，长消息/卡片 recall 占位后 reply
+      const formatted = this.formatter.format(result.text);
+      const canEdit = placeholderId && formatted.msg_type === 'text' && result.text.length <= 3500;
+      if (canEdit) {
+        const edited = await this.messageAPI.editMessage(placeholderId, result.text);
+        if (!edited) await this._reply(messageId, result.text); // API 失败降级
+      } else {
+        if (placeholderId) await this.messageAPI.recallMessage(placeholderId).catch(() => {});
+        await this._reply(messageId, result.text);
+      }
+
       await this._addReaction(messageId, "DONE");
 
       // 推送新下载的媒体文件（视频直接在聊天中播放）
@@ -685,6 +708,23 @@ class FeishuAdapter {
       }
     } catch (err) {
       console.error("[Feishu] Failed to send message:", err.message);
+    }
+  }
+
+  async _sendPlaceholder(chatId) {
+    try {
+      const res = await this.client.im.message.create({
+        data: {
+          receive_id: chatId,
+          content: JSON.stringify({ text: '⏳ 正在思考...' }),
+          msg_type: 'text',
+        },
+        params: { receive_id_type: 'chat_id' },
+      });
+      return res?.data?.message_id || null;
+    } catch (err) {
+      console.warn('[Feishu] Placeholder send failed:', err.message);
+      return null;
     }
   }
 
