@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseJSON, _fixUnescapedQuotes } = require('../src/claude');
+const { parseJSON, _fixUnescapedQuotes, buildQueryOptions } = require('../src/claude');
 
 describe('_fixUnescapedQuotes', () => {
   it('passes through valid JSON unchanged', () => {
@@ -32,6 +32,36 @@ describe('_fixUnescapedQuotes', () => {
   it('handles multiple keys', () => {
     const input = '{"a": "1", "b": "2"}';
     assert.equal(_fixUnescapedQuotes(input), input);
+  });
+});
+
+describe('buildQueryOptions', () => {
+  it('does not expose the retired feishu MCP', () => {
+    const options = buildQueryOptions('claude-opus-4-6', {});
+
+    assert.ok(!('feishu' in options.mcpServers));
+    assert.ok(!options.allowedTools.includes('mcp__feishu__*'));
+  });
+
+  it('keeps the remaining MCP servers and core settings', () => {
+    const options = buildQueryOptions('claude-opus-4-6', {});
+
+    assert.deepEqual(Object.keys(options.mcpServers).sort(), ['scrapling', 'tencent-cos', 'video-downloader']);
+    assert.ok(options.allowedTools.includes('mcp__video-downloader__*'));
+    assert.ok(options.allowedTools.includes('mcp__tencent-cos__*'));
+    assert.ok(options.allowedTools.includes('mcp__scrapling__*'));
+    assert.deepEqual(options.settingSources, ['project', 'user']);
+    assert.equal(options.agentProgressSummaries, true);
+  });
+
+  it('applies optional effort and resume values', () => {
+    const options = buildQueryOptions('claude-opus-4-6', {}, {
+      effort: 'high',
+      resume: 'session-123',
+    });
+
+    assert.equal(options.effort, 'high');
+    assert.equal(options.resume, 'session-123');
   });
 });
 

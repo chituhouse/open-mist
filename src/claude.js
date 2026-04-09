@@ -23,11 +23,6 @@ async function loadSDK() {
   return _query;
 }
 
-const MCP_FEISHU_SERVER = {
-  command: process.env.MCP_NODE_PATH || process.execPath,
-  args: [process.env.MCP_FEISHU_PATH || __dirname + "/mcp-feishu.mjs"],
-};
-
 const MCP_VIDEO_SERVER = {
   command: process.env.MCP_NODE_PATH || process.execPath,
   args: [__dirname + "/mcp-video.mjs"],
@@ -110,6 +105,36 @@ function _fixUnescapedQuotes(s) {
   return result;
 }
 
+function buildQueryOptions(model, hooks, extra = {}) {
+  const options = {
+    model,
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
+    maxTurns: 50,
+    settingSources: ['project', 'user'],
+    agentProgressSummaries: true,
+    mcpServers: {
+      "video-downloader": MCP_VIDEO_SERVER,
+      "tencent-cos": MCP_COS_SERVER,
+      "scrapling": MCP_SCRAPLING_SERVER,
+      // playwright MCP 不加入 Jarvis：每次初始化 Chromium 严重拖慢响应，普通对话不需要浏览器自动化
+      // 如需浏览器操作，使用本地 Claude Code + CDP 方案
+    },
+    allowedTools: ["Read", "Glob", "Grep", "TodoWrite", "Write", "Edit", "Bash", "mcp__video-downloader__*", "mcp__tencent-cos__*", "mcp__scrapling__*"],
+    hooks,
+  };
+
+  if (extra.effort) {
+    options.effort = extra.effort;
+  }
+
+  if (extra.resume) {
+    options.resume = extra.resume;
+  }
+
+  return options;
+}
+
 class ClaudeClient {
   constructor({ model } = {}) {
     this.model = model || DEFAULT_MODEL;
@@ -188,33 +213,11 @@ class ClaudeClient {
   async chat(prompt, sessionId = null, mediaFiles = [], chatOptions = {}) {
     const query = await loadSDK();
 
-    const options = {
-      model: this.model,
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
-      maxTurns: 50,
-      settingSources: ['project', 'user'],
-      agentProgressSummaries: true,
-      mcpServers: {
-        "feishu": MCP_FEISHU_SERVER,
-        "video-downloader": MCP_VIDEO_SERVER,
-        "tencent-cos": MCP_COS_SERVER,
-        "scrapling": MCP_SCRAPLING_SERVER,
-        // playwright MCP 不加入 Jarvis：每次初始化 Chromium 严重拖慢响应，普通对话不需要浏览器自动化
-        // 如需浏览器操作，使用本地 Claude Code + CDP 方案
-      },
-      allowedTools: ["Read", "Glob", "Grep", "TodoWrite", "Write", "Edit", "Bash", "mcp__feishu__*", "mcp__video-downloader__*", "mcp__tencent-cos__*", "mcp__scrapling__*"],
-      hooks,
-    };
-
     const { effort, onProgress, onRetry, onSessionInit } = chatOptions;
-    if (effort) {
-      options.effort = effort;
-    }
-
-    if (sessionId) {
-      options.resume = sessionId;
-    }
+    const options = buildQueryOptions(this.model, hooks, {
+      effort,
+      resume: sessionId,
+    });
 
     // 图片处理：ImageMagick 压缩（大图）→ Read 工具（Claude 直接看图）
     let queryPrompt = prompt;
@@ -337,4 +340,4 @@ class ClaudeClient {
   }
 }
 
-module.exports = { ClaudeClient, parseJSON, MEDIA_DIR, _fixUnescapedQuotes };
+module.exports = { ClaudeClient, buildQueryOptions, parseJSON, MEDIA_DIR, _fixUnescapedQuotes };
