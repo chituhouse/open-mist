@@ -23,7 +23,7 @@ function normalizeTimezone(timezone) {
     return new Intl.DateTimeFormat('en-US', { timeZone: timezone }).resolvedOptions().timeZone;
   } catch (error) {
     if (error instanceof RangeError) {
-      throw new Error(`Invalid timezone: ${timezone}`);
+      throw new Error(`Invalid timezone: ${timezone}`, { cause: error });
     }
 
     throw error;
