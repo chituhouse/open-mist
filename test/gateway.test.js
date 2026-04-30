@@ -171,35 +171,6 @@ describe('Gateway progress routing', () => {
   });
 });
 
-describe('Gateway runtime capability prompt', () => {
-  it('injects confirmed CLI capabilities into the prompt', () => {
-    const gateway = Object.create(Gateway.prototype);
-    gateway.runtimeCapabilities = {
-      serviceName: 'openmist.service',
-      openmistCommand: '/usr/local/bin/openmist',
-      localAdminPath: '/srv/openmist/admin.js',
-      larkCliCommand: '/usr/bin/lark-cli',
-    };
-
-    const prompt = gateway._buildEnrichedPrompt('帮我看下状态', '', null, null);
-
-    assert.match(prompt, /<runtime-capabilities>/);
-    assert.match(prompt, /openmist/);
-    assert.match(prompt, /node admin\.js/);
-    assert.match(prompt, /lark-cli/);
-    assert.match(prompt, /openmist\.service/);
-  });
-
-  it('skips runtime capability injection when nothing is available', () => {
-    const gateway = Object.create(Gateway.prototype);
-    gateway.runtimeCapabilities = {};
-
-    const prompt = gateway._buildEnrichedPrompt('你好', '', null, null);
-
-    assert.equal(prompt, '你好');
-  });
-});
-
 describe('Gateway operational issue routing', () => {
   it('routes contextual operational alerts to the active progress target when delivery succeeds', async () => {
     const calls = [];

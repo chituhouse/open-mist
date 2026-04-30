@@ -1,7 +1,6 @@
 const { setPostToolUseCallback, setSessionEndCallback, setPreCompactCallback, setPostCompactCallback, setStopFailureCallback, setToolFailureCallback, setTaskCreatedCallback } = require("./hooks");
 const { MemoryManager } = require('./memory');
 const { MemoryMetrics } = require('./memory/metrics');
-const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -9,40 +8,14 @@ const os = require('os');
 const SESSION_MAX_SIZE_MB = 10;
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const SESSION_DIR = process.env.SESSION_DIR || path.join(os.homedir(), '.claude', 'projects', '-home-' + (process.env.USER || 'user') + '-' + path.basename(process.cwd()));
-const DEFAULT_SERVICE_NAME = 'openmist.service';
-
-function detectCommand(command, env = process.env) {
-  try {
-    const result = spawnSync('sh', ['-lc', `command -v ${command}`], {
-      encoding: 'utf8',
-      timeout: 1000,
-      env,
-    });
-    if (result.status !== 0) return null;
-    return (result.stdout || '').trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function detectRuntimeCapabilities({ cwd = process.cwd(), env = process.env, existsSync = fs.existsSync } = {}) {
-  const localAdminPath = path.join(cwd, 'admin.js');
-  return {
-    serviceName: env.SERVICE_NAME || DEFAULT_SERVICE_NAME,
-    openmistCommand: detectCommand('openmist', env),
-    localAdminPath: existsSync(localAdminPath) ? localAdminPath : null,
-    larkCliCommand: detectCommand('lark-cli', env),
-  };
-}
 
 class Gateway {
-  constructor({ session, claude, memory, runtimeCapabilities } = {}) {
+  constructor({ session, claude, memory } = {}) {
     this.session = session;
     this.claude = claude;
     this.memory = memory || new MemoryManager();
     this.metrics = new MemoryMetrics();
     this.progressCallbacks = new Map();
-    this.runtimeCapabilities = runtimeCapabilities || detectRuntimeCapabilities();
     this._retryState = new Map(); // chatId → {attempt, maxRetries, errorStatus, ts}
     this._sessionFailures = new Map(); // chatId:sessionId → {count, lastError, ts}
     this._sessionToChatId = new Map(); // sessionId → chatId（用于 TaskCreated 等 hook 反向路由）
@@ -404,11 +377,6 @@ class Gateway {
   _buildEnrichedPrompt(userMessage, memoryContext, senderName, userProfile) {
     const message = senderName ? `[${senderName}]: ${userMessage}` : userMessage;
     let prefix = '';
-    const runtimeCapabilityContext = this._buildRuntimeCapabilityContext();
-
-    if (runtimeCapabilityContext) {
-      prefix += runtimeCapabilityContext;
-    }
 
     // 注入用户偏好
     if (userProfile) {
@@ -426,37 +394,6 @@ class Gateway {
     }
 
     return prefix ? prefix + message : message;
-  }
-
-  _buildRuntimeCapabilityContext() {
-    const caps = this.runtimeCapabilities || {};
-    const lines = [];
-
-    if (caps.openmistCommand || caps.localAdminPath) {
-      const launchers = [];
-      if (caps.openmistCommand) launchers.push('`openmist`');
-      if (caps.localAdminPath) launchers.push('项目根目录中的 `node admin.js`');
-
-      let line = `- OpenMist 管理 CLI 可用，可通过 ${launchers.join(' 或 ')} 执行状态查看、日志、诊断、配置检查和服务控制`;
-      if (caps.serviceName) line += `；当前服务名是 \`${caps.serviceName}\``;
-      lines.push(line);
-    }
-
-    if (caps.larkCliCommand) {
-      lines.push('- Lark CLI 可用，命令为 `lark-cli`，可用于飞书 / Lark 平台操作');
-    }
-
-    if (lines.length === 0) return '';
-
-    return [
-      '<runtime-capabilities>',
-      '你运行在 OpenMist 服务器实例中。以下是当前已确认可用的宿主能力：',
-      ...lines,
-      '当用户要求查看状态、日志、重启服务、检查配置或执行飞书平台操作时，优先考虑这些命令行能力；不要声称自己“没有 CLI”或“无法执行服务器检查”。',
-      '</runtime-capabilities>',
-      '',
-      '',
-    ].join('\n');
   }
 
   _getSessionSize(sessionId) {
