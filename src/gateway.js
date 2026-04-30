@@ -10,15 +10,16 @@ const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const SESSION_DIR = process.env.SESSION_DIR || path.join(os.homedir(), '.claude', 'projects', '-home-' + (process.env.USER || 'user') + '-' + path.basename(process.cwd()));
 
 class Gateway {
-  constructor({ session, claude, memory }) {
+  constructor({ session, claude, memory } = {}) {
     this.session = session;
     this.claude = claude;
     this.memory = memory || new MemoryManager();
     this.metrics = new MemoryMetrics();
-    this.onProgress = null;
+    this.progressCallbacks = new Map();
     this._retryState = new Map(); // chatId → {attempt, maxRetries, errorStatus, ts}
     this._sessionFailures = new Map(); // chatId:sessionId → {count, lastError, ts}
     this._sessionToChatId = new Map(); // sessionId → chatId（用于 TaskCreated 等 hook 反向路由）
+    this._sessionToProgressTarget = new Map(); // sessionId → progressTargetId（按渠道路由进度/告警）
     this._taskNotifyTs = new Map(); // chatId → lastNotifyTs（防刷屏：同一 chat 30s 内只发一条）
 
     // Hook: 会话结束时保存摘要
@@ -77,10 +78,8 @@ class Gateway {
         this.memory.activeConversations.delete(sessionId);
       }
 
-      // 飞书通知（5分钟内最多1次，防刷屏）
+      // 飞书通知（回退到通知群时 5 分钟内最多 1 次，用户上下文内的提示不做这层抑制）
       const now = Date.now();
-      if (now - _lastStopFailureNotify < 5 * 60 * 1000) return;
-      _lastStopFailureNotify = now;
 
       // 判断是否刚经历过重试（60秒内有重试记录 = 重试耗尽，否则 = 突发失败）
       const chatId = conv?.chatId;
@@ -112,15 +111,36 @@ class Gateway {
         `Session: ${sessionId ? sessionId.substring(0, 8) : 'unknown'}`,
       ].join("\n");
       const notifyScript = require("path").join(__dirname, "..", "scripts", "send-notify.js");
-      spawn("node", [notifyScript, msg], { detached: true, stdio: "ignore" }).unref();
+      const progressTargetId = sessionId ? this._sessionToProgressTarget.get(sessionId) : null;
+      const userInfo = wasRetrying
+        ? { type: 'alert', text: `⏳ 本次请求在重试 ${retryState.attempt}/${retryState.maxRetries} 次后仍失败，请稍后重试。` }
+        : { type: 'alert', text: '⚠️ 本次处理遇到运行异常，请稍后重试。' };
+
+      if (progressTargetId) {
+        await this._notifyOperationalIssue({
+          progressTargetId,
+          userInfo,
+          notifyMessage: msg,
+          spawnFn: spawn,
+          notifyScriptPath: notifyScript,
+        });
+        return;
+      }
+
+      if (now - _lastStopFailureNotify < 5 * 60 * 1000) return;
+      _lastStopFailureNotify = now;
+      await this._notifyOperationalIssue({
+        progressTargetId,
+        userInfo,
+        notifyMessage: msg,
+        spawnFn: spawn,
+        notifyScriptPath: notifyScript,
+      });
     });
 
     // Hook: 工具执行失败 — 发飞书通知（2分钟内最多1次，防刷屏）
     let _lastToolFailureNotify = 0;
     setToolFailureCallback(async (sessionId, toolName, error) => {
-      const now = Date.now();
-      if (now - _lastToolFailureNotify < 2 * 60 * 1000) return;
-      _lastToolFailureNotify = now;
       const { spawn } = require("child_process");
       const msg = [
         "⚠️ Jarvis 工具执行失败",
@@ -129,21 +149,48 @@ class Gateway {
         "Session: " + (sessionId ? sessionId.substring(0, 8) : "unknown"),
       ].join("\n");
       const notifyScript = require("path").join(__dirname, "..", "scripts", "send-notify.js");
-      spawn("node", [notifyScript, msg], { detached: true, stdio: "ignore" }).unref();
+      const progressTargetId = sessionId ? this._sessionToProgressTarget.get(sessionId) : null;
+      const userInfo = {
+        type: 'alert',
+        text: `⚠️ 工具 ${toolName} 执行失败，请稍后重试。`,
+      };
+
+      if (progressTargetId) {
+        await this._notifyOperationalIssue({
+          progressTargetId,
+          userInfo,
+          notifyMessage: msg,
+          spawnFn: spawn,
+          notifyScriptPath: notifyScript,
+        });
+        return;
+      }
+
+      const now = Date.now();
+      if (now - _lastToolFailureNotify < 2 * 60 * 1000) return;
+      _lastToolFailureNotify = now;
+      await this._notifyOperationalIssue({
+        progressTargetId,
+        userInfo,
+        notifyMessage: msg,
+        spawnFn: spawn,
+        notifyScriptPath: notifyScript,
+      });
     });
 
     // Hook: 任务创建通知（TaskCreated → onProgress → 用户所在渠道）
     setTaskCreatedCallback(async (sessionId, _taskId, subject) => {
       if (!subject || subject.length < 3) return; // 过滤空任务
       const chatId = this._sessionToChatId.get(sessionId);
-      if (!chatId || !this.onProgress) return;
+      const progressTargetId = this._sessionToProgressTarget.get(sessionId);
+      if (!chatId || !progressTargetId || this.progressCallbacks.size === 0) return;
 
       // 30s 防刷屏：同一 chat 内连续任务只通知一次
       const now = Date.now();
       if (now - (this._taskNotifyTs.get(chatId) || 0) < 30 * 1000) return;
       this._taskNotifyTs.set(chatId, now);
 
-      this.onProgress(chatId, `📋 ${subject}`);
+      await this._emitProgress(progressTargetId, `📋 ${subject}`);
     });
   }
 
@@ -151,9 +198,18 @@ class Gateway {
    * 核心处理管线：记忆检索 → Session → Claude → 记忆追踪
    * @returns {{ text, sessionId, isNewSession, pipelineMetrics }}
    */
-  setProgressCallback(fn) { this.onProgress = fn; }
+  registerProgressCallback(name, fn) {
+    if (!name) throw new Error('progress callback name is required');
+    if (typeof fn !== 'function') throw new Error('progress callback must be a function');
+    this.progressCallbacks.set(name, fn);
+    return () => this.progressCallbacks.delete(name);
+  }
 
-  async processMessage({ chatId, text, mediaFiles = [], chatType, channelLabel, senderName, userProfile, userId }) {
+  setProgressCallback(fn) {
+    return this.registerProgressCallback('default', fn);
+  }
+
+  async processMessage({ chatId, text, mediaFiles = [], chatType, channelLabel, senderName, userProfile, userId, progressTargetId }) {
     // 1. 记忆检索
     let memoryContext = '';
     let retrievalMs = 0, injectedCount = 0, retrievalMemories = [];
@@ -202,9 +258,14 @@ class Gateway {
     }
 
     // 5. Claude 调用（resume 失败自动重试）
-    const onProgress = this.onProgress ? (summary) => this.onProgress(chatId, summary) : undefined;
+    const onProgress = (this.progressCallbacks.size > 0 && progressTargetId)
+      ? async (summary) => this._emitProgress(progressTargetId, summary)
+      : undefined;
     const onRetry = (info) => { this._retryState.set(chatId, { ...info, ts: Date.now() }); };
-    const onSessionInit = (sessionId) => { this._sessionToChatId.set(sessionId, chatId); };
+    const onSessionInit = (sessionId) => {
+      this._sessionToChatId.set(sessionId, chatId);
+      if (progressTargetId) this._sessionToProgressTarget.set(sessionId, progressTargetId);
+    };
     let response;
     try {
       response = await this.claude.chat(enrichedPrompt, existingSessionId, mediaFiles, { effort, onProgress, onRetry, onSessionInit });
@@ -225,6 +286,7 @@ class Gateway {
           if (retryErr.sessionId) {
             this.session.set(chatId, retryErr.sessionId);
             this._sessionToChatId.set(retryErr.sessionId, chatId);
+            if (progressTargetId) this._sessionToProgressTarget.set(retryErr.sessionId, progressTargetId);
           }
           throw retryErr;
         }
@@ -248,6 +310,7 @@ class Gateway {
           } else {
             this.session.set(chatId, err.sessionId);
             this._sessionToChatId.set(err.sessionId, chatId);
+            if (progressTargetId) this._sessionToProgressTarget.set(err.sessionId, progressTargetId);
             if (err.message === 'No result from Claude') {
               this._sessionFailures.set(failKey, { count: newCount, lastError: err.message, ts: Date.now() });
             }
@@ -261,6 +324,7 @@ class Gateway {
     if (response.sessionId) {
       this.session.set(chatId, response.sessionId);
       this._sessionToChatId.set(response.sessionId, chatId); // 反向路由（供 TaskCreated hook 使用）
+      if (progressTargetId) this._sessionToProgressTarget.set(response.sessionId, progressTargetId);
       // 清除该 chat 所有失败计数
       for (const k of this._sessionFailures.keys()) {
         if (k.startsWith(chatId + ':')) this._sessionFailures.delete(k);
@@ -339,6 +403,32 @@ class Gateway {
     } catch {
       return 0;
     }
+  }
+
+  async _emitProgress(targetId, info) {
+    let handled = false;
+    for (const callback of this.progressCallbacks.values()) {
+      try {
+        const result = await callback(targetId, info);
+        if (result !== false) handled = true;
+      } catch (err) {
+        console.warn('[Gateway] Progress callback failed:', err.message);
+      }
+    }
+    return handled;
+  }
+
+  async _notifyOperationalIssue({ progressTargetId, userInfo, notifyMessage, spawnFn, notifyScriptPath }) {
+    if (progressTargetId && this.progressCallbacks.size > 0 && userInfo) {
+      const delivered = await this._emitProgress(progressTargetId, userInfo);
+      if (delivered) return 'progress';
+    }
+
+    if (typeof spawnFn === 'function' && notifyMessage && notifyScriptPath) {
+      const child = spawnFn('node', [notifyScriptPath, notifyMessage], { detached: true, stdio: 'ignore' });
+      if (child && typeof child.unref === 'function') child.unref();
+    }
+    return 'notify';
   }
 
   /**
@@ -438,6 +528,9 @@ class Gateway {
       await this.memory.endConversation(sessionId);
     } catch (err) {
       console.warn('[Gateway] Failed to end conversation:', err.message);
+    } finally {
+      this._sessionToChatId.delete(sessionId);
+      this._sessionToProgressTarget.delete(sessionId);
     }
   }
 }

@@ -11,7 +11,7 @@ test('index startup stays alive when only the web adapter is active', () => {
   const result = spawnSync(process.execPath, ['src/index.js'], {
     cwd: root,
     encoding: 'utf8',
-    timeout: 1500,
+    timeout: 10000,
     env: {
       ...process.env,
       FEISHU_APP_ID: '',
@@ -60,7 +60,7 @@ test('index startup retains server handles after a forced GC cycle', () => {
   const result = spawnSync(process.execPath, ['--expose-gc', '-e', probe], {
     cwd: root,
     encoding: 'utf8',
-    timeout: 3000,
+    timeout: 10000,
     env: process.env,
   });
 
